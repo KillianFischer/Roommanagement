@@ -65,9 +65,9 @@ class RoomManagementApp:
         # Schedule Tab
         self.schedule_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.schedule_frame, text="Schedule")
-        ttk.Button(self.schedule_frame, text="Generate Schedule", command=self.generate_schedule).grid(row=0, column=0, pady=5, padx=5)
+        ttk.Button(self.schedule_frame, text="Generate Schedule", command=self.generate_schedule).grid(row=0, column=0, pady=15, padx=15)
         self.schedule_tree = ttk.Treeview(self.schedule_frame)
-        self.schedule_tree.grid(row=1, column=0, sticky="nsew", pady=5, padx=5)
+        self.schedule_tree.grid(row=1, column=0, sticky="nsew", pady=15, padx=15)
         self.schedule_frame.rowconfigure(1, weight=1)
         self.schedule_frame.columnconfigure(0, weight=1)
 
@@ -185,10 +185,14 @@ class RoomManagementApp:
         self.schedule_tree.column('Company', anchor=tk.W, width=250)
         self.schedule_tree.heading('Company', text='Unternehmen', anchor=tk.W)
         
-        for slot, time_range in time_slots:
-            self.schedule_tree.column(slot, anchor=tk.CENTER, width=150)
-            self.schedule_tree.heading(slot, text=f"{slot}\n{time_range}", anchor=tk.CENTER)
-        
+        for col in columns:
+            self.schedule_tree.column(col, anchor=tk.W, width=150)  
+            if col == 'Company':
+                self.schedule_tree.heading(col, text='Unternehmen', anchor=tk.W)
+            else:
+                time_range = dict(time_slots).get(col, '')
+                self.schedule_tree.heading(col, text=f"{col} ({time_range})", anchor=tk.W)
+
         for company in self.scheduler.companies:
             row = [company.name]
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):

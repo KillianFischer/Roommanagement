@@ -92,7 +92,10 @@ class SchedulerService:
             self.schedule.clear()
             company_rooms = {}
             available_rooms = self.rooms.copy()
-
+            
+            # Neue Struktur, um früheste Startzeit für jedes Unternehmen zu speichern
+            company_start_times = {company.name.strip(): getattr(company, 'frühster_zeitpunkt', 'A') for company in self.companies}
+            
             slot_companies = {i: [] for i in range(len(self.time_slots))}
 
             for company in sorted_companies:
@@ -100,8 +103,11 @@ class SchedulerService:
                     available_rooms = self.rooms.copy()
                 company_room = available_rooms.pop(0)
                 company_rooms[company.name] = company_room
-
-                for slot_idx in range(len(self.time_slots)):
+                
+                # Bestimme den ersten erlaubten Slot
+                start_slot_idx = next((i for i, (slot_letter, _) in enumerate(self.time_slots) if slot_letter == company_start_times[company.name]), 0)
+                
+                for slot_idx in range(start_slot_idx, len(self.time_slots)):
                     slot_letter, time_range = self.time_slots[slot_idx]
                     session = CompanySession(
                         company=company,
@@ -112,47 +118,14 @@ class SchedulerService:
                     self.schedule[(company.name, slot_idx)] = session
                     slot_companies[slot_idx].append(company.name)
 
-            student_assignments = {s.student_id: set() for s in self.student_preferences}
-            
-            for student in self.student_preferences:
-                if not student.wishes:
-                    continue
-                first_wish = str(student.wishes[0]).strip()
-                company_name = number_to_company.get(int(float(first_wish)), first_wish)
-                assigned = False
-                for slot_idx in range(len(self.time_slots)):
-                    key = (company_name, slot_idx)
-                    if key in self.schedule and not self.schedule[key].is_full():
-                        self.schedule[key].add_student(student.student_id, student.name)
-                        student_assignments[student.student_id].add(slot_idx)
-                        assigned = True
-                        break
-                if not assigned:
-                    messagebox.showerror(
-                        "Fehler",
-                        f"Erster Wunsch konnte nicht erfüllt werden für: {student.name}"
-                    )
-                    return False
-
-            for student in self.student_preferences:
-                for wish in student.wishes[1:]:
-                    wish = str(wish).strip()
-                    company_name = number_to_company.get(int(float(wish)), wish)
-                    for slot_idx in range(len(self.time_slots)):
-                        if slot_idx in student_assignments[student.student_id]:
-                            continue
-                        key = (company_name, slot_idx)
-                        if key in self.schedule and not self.schedule[key].is_full():
-                            self.schedule[key].add_student(student.student_id, student.name)
-                            student_assignments[student.student_id].add(slot_idx)
-                            break
-
             return True
 
         except Exception as e:
             messagebox.showerror("Error", f"Fehler bei der Zeitplangenerierung: {str(e)}")
             self.schedule.clear()
             return False
+
+
 
     def get_schedule(self) -> Dict[Tuple[str,int], CompanySession]:
         return self.schedule
@@ -256,10 +229,10 @@ class SchedulerService:
                             schedule_data,
                             colWidths=[60*mm, 60*mm, 30*mm, 20*mm],
                             style=TableStyle([
-                                ('GRID', (0,0), (-1,-1), 0.25, colors.black),
+                                ('GRID', (0,0), (-1,-1), 0.25, colors.red),
                                 ('BACKGROUND', (0,0), (-1,0), colors.grey),
                                 ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                                ('ALIGN', (0,1), (-2,-1), 'LEFT')
                                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
                                 ('FONTSIZE', (0,0), (-1,0), 10),
                                 ('BOTTOMPADDING', (0,0), (-1,0), 12),
@@ -267,7 +240,7 @@ class SchedulerService:
                                 ('TEXTCOLOR', (0,1), (-1,-1), colors.black),
                                 ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
                                 ('FONTSIZE', (0,1), (-1,-1), 10),
-                                ('TOPPADDING', (0,1), (-1,-1), 6),
+                                ('TOPPADDING', (100), (100), (100006)),
                                 ('BOTTOMPADDING', (0,1), (-1,-1), 6),
                                 ('LEADING', (0,1), (-1,-1), 8)
                             ])
