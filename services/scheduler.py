@@ -93,10 +93,8 @@ class SchedulerService:
             company_rooms = {}
             available_rooms = self.rooms.copy()
             
-            # Neue Struktur, um früheste Startzeit für jedes Unternehmen zu speichern
-            company_start_times = {company.name.strip(): getattr(company, 'frühster_zeitpunkt', 'A') for company in self.companies}
-            
-            slot_companies = {i: [] for i in range(len(self.time_slots))}
+            # Track which rooms are assigned to each time slot
+            assigned_rooms = {i: set() for i in range(len(self.time_slots))}
 
             for company in sorted_companies:
                 if not available_rooms:
@@ -108,6 +106,11 @@ class SchedulerService:
                 for slot_offset in range(len(self.time_slots) - company.earliest_slot):
                     slot_idx = company.earliest_slot + slot_offset
                     slot_letter, time_range = self.time_slots[slot_idx]
+
+                    # Check if the room is already assigned for this time slot
+                    if company_room in assigned_rooms[slot_idx]:
+                        continue  # Skip this company if the room is already assigned
+
                     session = CompanySession(
                         company=company,
                         room=company_room,
@@ -115,7 +118,8 @@ class SchedulerService:
                         time_range=time_range
                     )
                     self.schedule[(company.name, slot_idx)] = session
-                    slot_companies[slot_idx].append(company.name)
+                    assigned_rooms[slot_idx].add(company_room)  # Mark room as assigned
+                    break  # Once assigned to a slot, break out of the loop
 
             return True
 
@@ -228,10 +232,10 @@ class SchedulerService:
                             schedule_data,
                             colWidths=[60*mm, 60*mm, 30*mm, 20*mm],
                             style=TableStyle([
-                                ('GRID', (0,0), (-1,-1), 0.25, colors.red),
+                                ('GRID', (0,0), (-1,-1), 0.25, colors.black),
                                 ('BACKGROUND', (0,0), (-1,0), colors.grey),
                                 ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                                ('ALIGN', (0,1), (-2,-1), 'LEFT')
+                                ('ALIGN', (0,1), (-2,-1), 'LEFT'),
                                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
                                 ('FONTSIZE', (0,0), (-1,0), 10),
                                 ('BOTTOMPADDING', (0,0), (-1,0), 12),
