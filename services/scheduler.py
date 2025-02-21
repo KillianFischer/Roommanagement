@@ -4,7 +4,7 @@ from tkinter import messagebox
 
 from models.student import StudentPreference
 from models.company import Company, CompanySession
-# does not work yet
+
 class SchedulerService:
     def __init__(self):
         self.student_preferences: Optional[List[StudentPreference]] = None
@@ -25,14 +25,13 @@ class SchedulerService:
         if df is None or df.empty:
             return False
         
-        # mapping from company number to name
         company_mapping = {}
         if self.companies:
             for idx, company in enumerate(self.companies, 1):
-                company_mapping[idx] = company.name.strip()
-                company_mapping[str(idx)] = company.name.strip()
+                normalized_name = company.name.strip()
+                company_mapping[idx] = normalized_name
+                company_mapping[str(idx)] = normalized_name
         
-        # strip extra spaces
         df.columns = df.columns.str.strip()
         self.student_preferences = StudentPreference.from_dataframe(df, company_mapping)
         return True
@@ -61,52 +60,39 @@ class SchedulerService:
 
     def generate_schedule(self) -> bool:
         try:
-            # mapping between company names and numbers
             company_to_number = {}
             number_to_company = {}
             for idx, company in enumerate(self.companies, 1):
                 normalized_name = company.name.strip()
                 company_to_number[normalized_name] = str(idx)
                 number_to_company[str(idx)] = normalized_name
+                number_to_company[idx] = normalized_name
 
-            # first wishes to ensure capacity
             first_wish_counts = {}
             for student in self.student_preferences:
                 if student.wishes:
                     first_wish = str(student.wishes[0]).strip()
-                    # Convert company name to number if it's a name
-                    wish_number = company_to_number.get(first_wish, first_wish)
-                    first_wish_counts[wish_number] = first_wish_counts.get(wish_number, 0) + 1
+                    company_name = number_to_company.get(int(float(first_wish)), first_wish)
+                    first_wish_counts[company_name] = first_wish_counts.get(company_name, 0) + 1
 
-            # Calculate sessions needed for first wishes first
             sessions_per_company = {}
             for company in self.companies:
                 normalized_name = company.name.strip()
-                company_number = company_to_number[normalized_name]
-                first_wish_count = first_wish_counts.get(company_number, 0)
+                first_wish_count = first_wish_counts.get(normalized_name, 0)
                 if first_wish_count > 0:
                     min_sessions = -(-first_wish_count // company.capacity)
                     sessions_per_company[normalized_name] = min(min_sessions, company.max_sessions)
 
-            # Sort companies by number of first wishes
             sorted_companies = sorted(
                 self.companies,
-                key=lambda x: first_wish_counts.get(company_to_number.get(x.name.strip(), ''), 0),
+                key=lambda x: first_wish_counts.get(x.name.strip(), 0),
                 reverse=True
             )
-
-            # Count all wishes for total session calculation
-            company_counts = {}
-            for student in self.student_preferences:
-                for comp in student.wishes:
-                    comp_normalized = str(comp).strip()
-                    company_counts[comp_normalized] = company_counts.get(comp_normalized, 0) + 1
 
             self.schedule.clear()
             company_rooms = {}
             available_rooms = self.rooms.copy()
 
-            # Distribute companies across time slots
             slot_companies = {i: [] for i in range(len(self.time_slots))}
 
             for company in sorted_companies:
@@ -115,9 +101,6 @@ class SchedulerService:
                 company_room = available_rooms.pop(0)
                 company_rooms[company.name] = company_room
 
-                sessions_needed = sessions_per_company[company.name]
-
-                # Create sessions for all allocated slots
                 for slot_idx in range(len(self.time_slots)):
                     slot_letter, time_range = self.time_slots[slot_idx]
                     session = CompanySession(
@@ -129,17 +112,16 @@ class SchedulerService:
                     self.schedule[(company.name, slot_idx)] = session
                     slot_companies[slot_idx].append(company.name)
 
-            # Assign students to sessions
             student_assignments = {s.student_id: set() for s in self.student_preferences}
             
-            # First, fulfill first wishes
             for student in self.student_preferences:
                 if not student.wishes:
                     continue
                 first_wish = str(student.wishes[0]).strip()
+                company_name = number_to_company.get(int(float(first_wish)), first_wish)
                 assigned = False
                 for slot_idx in range(len(self.time_slots)):
-                    key = (first_wish, slot_idx)
+                    key = (company_name, slot_idx)
                     if key in self.schedule and not self.schedule[key].is_full():
                         self.schedule[key].add_student(student.student_id, student.name)
                         student_assignments[student.student_id].add(slot_idx)
@@ -152,14 +134,14 @@ class SchedulerService:
                     )
                     return False
 
-            # Then handle remaining wishes
             for student in self.student_preferences:
                 for wish in student.wishes[1:]:
                     wish = str(wish).strip()
+                    company_name = number_to_company.get(int(float(wish)), wish)
                     for slot_idx in range(len(self.time_slots)):
                         if slot_idx in student_assignments[student.student_id]:
                             continue
-                        key = (wish, slot_idx)
+                        key = (company_name, slot_idx)
                         if key in self.schedule and not self.schedule[key].is_full():
                             self.schedule[key].add_student(student.student_id, student.name)
                             student_assignments[student.student_id].add(slot_idx)
