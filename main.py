@@ -196,14 +196,17 @@ class RoomManagementApp:
         for company in self.scheduler.companies:
             row = [company.name]
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
-                session = self.scheduler.schedule.get((company.name, slot_idx))
-                if session:
-                    count = len(session.students)
-                    text = f"Raum: {session.room}"
-                    if count > 0:
-                        text += f"\n({count} Schü{'' if count == 1 else 'ler:innen'})"
-                else:
+                if slot_idx < company.earliest_slot:
                     text = ""
+                else:
+                    session = self.scheduler.schedule.get((company.name, slot_idx))
+                    if session:
+                        count = len(session.students)
+                        text = f"Raum: {session.room}"
+                        if count > 0:
+                            text += f"\n({count} Schü{'' if count == 1 else 'ler:innen'})"
+                    else:
+                        text = ""
                 row.append(text)
             self.schedule_tree.insert('', tk.END, values=row)
 
