@@ -101,7 +101,9 @@ class SchedulerService:
                 company_room = available_rooms.pop(0)
                 company_rooms[company.name] = company_room
 
-                for slot_idx in range(len(self.time_slots)):
+                # Start from the company's earliest slot (excel last column)
+                for slot_offset in range(len(self.time_slots) - company.earliest_slot):
+                    slot_idx = company.earliest_slot + slot_offset
                     slot_letter, time_range = self.time_slots[slot_idx]
                     session = CompanySession(
                         company=company,
