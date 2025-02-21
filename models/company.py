@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List
 import pandas as pd
-
+# not working yet
 @dataclass
 class Company:
     name: str

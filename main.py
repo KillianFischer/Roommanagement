@@ -1,9 +1,12 @@
+import os
+from dotenv import load_dotenv
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
-import os
 
 from services.scheduler import SchedulerService
+
+load_dotenv()
 
 class RoomManagementApp:
     def __init__(self, root):
@@ -14,6 +17,14 @@ class RoomManagementApp:
         # Initialize the Scheduler instance
         self.scheduler = SchedulerService()
 
+        # Load environment variables and setup import folder
+        self.dev_mode = os.getenv('DEV_MODE', 'false').lower() == 'true'
+        self.import_folder = os.getenv('IMPORT_FOLDER', 'import/')
+        
+        # Create import folder if it doesn't exist
+        if self.dev_mode and not os.path.exists(self.import_folder):
+            os.makedirs(self.import_folder)
+        
         self.main_frame = ttk.Frame(self.root, padding="10")
         self.main_frame.grid(row=0, column=0, sticky="nsew")
 
@@ -86,18 +97,27 @@ class RoomManagementApp:
             values = [str(row[col]) if col in row and pd.notna(row[col]) else '' for col in columns]
             tree.insert('', tk.END, values=values)
 
+    def get_import_file(self, env_key, dialog_title="Select file"):
+        if self.dev_mode:
+            filename = os.getenv(env_key)
+            if filename:
+                filepath = os.path.normpath(os.path.join(self.import_folder, filename))
+                if os.path.exists(filepath):
+                    return filepath
+        
+        return filedialog.askopenfilename(
+            title=dialog_title,
+            filetypes=[("Excel files", "*.xlsx")]
+        )
+
     def import_preferences(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+        file_path = self.get_import_file('STUDENT_PREFERENCES', "Import Student Preferences")
         if file_path:
             try:
                 df = pd.read_excel(file_path)
-                # strip extra spaces
                 df.columns = df.columns.str.strip()
-                print("Student Wishes Columns:", df.columns.tolist())
-                print(df.head())
                 if self.scheduler.load_student_preferences(df):
                     self.preferences_status.config(text=f"Imported: {os.path.basename(file_path)}", foreground="green")
-                    # show preview
                     cols = ['Klasse', 'Name', 'Vorname'] + [f'Wahl {i}' for i in range(1, 7)]
                     self.setup_preview_tree(self.preferences_preview, cols)
                     self.update_preview(self.preferences_preview, df, cols)
@@ -107,14 +127,11 @@ class RoomManagementApp:
                 self.preferences_status.config(text=f"Error: {str(e)}", foreground="red")
 
     def import_companies(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+        file_path = self.get_import_file('COMPANY_LIST', "Import Company List")
         if file_path:
             try:
                 df = pd.read_excel(file_path)
-                # strip extra spaces
                 df.columns = df.columns.str.strip()
-                print("Companies Columns:", df.columns.tolist())
-                print(df.head())
                 if self.scheduler.load_companies(df):
                     self.companies_status.config(text=f"Imported: {os.path.basename(file_path)}", foreground="green")
                     cols = ['Unternehmen', 'Fachrichtung', 'Max. Teilnehmer', 'Max. Veranstaltungen', 'Frühester Zeitpunkt']
@@ -126,13 +143,10 @@ class RoomManagementApp:
                 self.companies_status.config(text=f"Error: {str(e)}", foreground="red")
 
     def import_rooms(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+        file_path = self.get_import_file('ROOM_LIST', "Import Room List")
         if file_path:
             try:
                 df = pd.read_excel(file_path, header=None)
-                # strip extra spaces
-                print("Rooms Preview:")
-                print(df.head())
                 if self.scheduler.load_rooms(df):
                     self.rooms_status.config(text=f"Imported: {os.path.basename(file_path)}", foreground="green")
                     self.setup_preview_tree(self.rooms_preview, ['Raum'])
@@ -153,11 +167,9 @@ class RoomManagementApp:
             messagebox.showerror("Fehler", "Zeitplan konnte nicht generiert werden. Bitte prüfen Sie Ihre Daten und Zeitslots.")
 
     def update_schedule_display(self):
-        # Clear
         for item in self.schedule_tree.get_children():
             self.schedule_tree.delete(item)
         
-        # time slots
         time_slots = [
             ('A', '8:45 – 9:30'),
             ('B', '9:50 – 10:35'),
@@ -165,9 +177,8 @@ class RoomManagementApp:
             ('D', '11:40 – 12:25'),
             ('E', '12:25 – 13:10')
         ]
-        self.scheduler.time_slots = time_slots  # update scheduler
+        self.scheduler.time_slots = time_slots
 
-        # tree columns: one for the company and one for each slot.
         columns = ['Company'] + [slot for slot, _ in time_slots]
         self.schedule_tree['columns'] = columns
         self.schedule_tree.column('#0', width=0, stretch=tk.NO)
@@ -178,7 +189,6 @@ class RoomManagementApp:
             self.schedule_tree.column(slot, anchor=tk.CENTER, width=150)
             self.schedule_tree.heading(slot, text=f"{slot}\n{time_range}", anchor=tk.CENTER)
         
-        # For each company one row; each cell shows the room and (if available) the number of students.
         for company in self.scheduler.companies:
             row = [company.name]
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
