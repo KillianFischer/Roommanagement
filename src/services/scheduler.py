@@ -10,7 +10,7 @@ class SchedulerService:
         self.student_preferences: Optional[List[StudentPreference]] = None
         self.companies: Optional[List[Company]] = None
         self.rooms: Optional[List[str]] = None
-        # Schedule: maps, company name, slot index
+        # Schedule: maps, company name, slot
         self.schedule: Dict[Tuple[str, int], CompanySession] = {}
         # list of tuples: slot letter, time range
         self.time_slots = [
@@ -46,7 +46,6 @@ class SchedulerService:
     def load_rooms(self, df: pd.DataFrame) -> bool:
         if df is None or df.empty:
             return False
-        # ToDo: not ignoring "Aula"
         self.rooms = [str(int(room)) for room in df.iloc[:, 0].tolist() 
                       if pd.notna(room) and str(room).strip() != 'Aula' and str(room).strip().isdigit()]
         return True
@@ -72,7 +71,12 @@ class SchedulerService:
             for student in self.student_preferences:
                 if student.wishes:
                     first_wish = str(student.wishes[0]).strip()
-                    company_name = number_to_company.get(int(float(first_wish)), first_wish)
+                    # Try: to convert to number, if not possible use the string directly
+                    try:
+                        wish_num = int(float(first_wish))
+                        company_name = number_to_company.get(wish_num, first_wish)
+                    except (ValueError, TypeError):
+                        company_name = first_wish
                     first_wish_counts[company_name] = first_wish_counts.get(company_name, 0) + 1
 
             sessions_per_company = {}
@@ -92,16 +96,33 @@ class SchedulerService:
             self.schedule.clear()
             company_rooms = {}
             available_rooms = self.rooms.copy()
-
-            slot_companies = {i: [] for i in range(len(self.time_slots))}
-
+            
+            # for Polizei - assign Aula
+            polizei_company = next((company for company in sorted_companies if company.name.strip() == "Polizei"), None)
+            if polizei_company:
+                company_rooms["Polizei"] = "Aula"
+                sorted_companies.remove(polizei_company)
+                # ToDo
+                for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
+                    if slot_idx >= polizei_company.earliest_slot:
+                        session = CompanySession(
+                            company=polizei_company,
+                            room="Aula",
+                            time_slot=slot_letter,
+                            time_range=time_range
+                        )
+                        self.schedule[(polizei_company.name, slot_idx)] = session
+            
+            # non police companies
             for company in sorted_companies:
                 if not available_rooms:
                     available_rooms = self.rooms.copy()
                 company_room = available_rooms.pop(0)
                 company_rooms[company.name] = company_room
 
-                for slot_idx in range(len(self.time_slots)):
+                # earliest slot
+                for slot_offset in range(len(self.time_slots) - company.earliest_slot):
+                    slot_idx = company.earliest_slot + slot_offset
                     slot_letter, time_range = self.time_slots[slot_idx]
                     session = CompanySession(
                         company=company,
@@ -110,42 +131,6 @@ class SchedulerService:
                         time_range=time_range
                     )
                     self.schedule[(company.name, slot_idx)] = session
-                    slot_companies[slot_idx].append(company.name)
-
-            student_assignments = {s.student_id: set() for s in self.student_preferences}
-            
-            for student in self.student_preferences:
-                if not student.wishes:
-                    continue
-                first_wish = str(student.wishes[0]).strip()
-                company_name = number_to_company.get(int(float(first_wish)), first_wish)
-                assigned = False
-                for slot_idx in range(len(self.time_slots)):
-                    key = (company_name, slot_idx)
-                    if key in self.schedule and not self.schedule[key].is_full():
-                        self.schedule[key].add_student(student.student_id, student.name)
-                        student_assignments[student.student_id].add(slot_idx)
-                        assigned = True
-                        break
-                if not assigned:
-                    messagebox.showerror(
-                        "Fehler",
-                        f"Erster Wunsch konnte nicht erfüllt werden für: {student.name}"
-                    )
-                    return False
-
-            for student in self.student_preferences:
-                for wish in student.wishes[1:]:
-                    wish = str(wish).strip()
-                    company_name = number_to_company.get(int(float(wish)), wish)
-                    for slot_idx in range(len(self.time_slots)):
-                        if slot_idx in student_assignments[student.student_id]:
-                            continue
-                        key = (company_name, slot_idx)
-                        if key in self.schedule and not self.schedule[key].is_full():
-                            self.schedule[key].add_student(student.student_id, student.name)
-                            student_assignments[student.student_id].add(slot_idx)
-                            break
 
             return True
 
@@ -169,14 +154,14 @@ class SchedulerService:
             from reportlab.lib.units import mm
             from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
             
-            # Gruppiere Schüler nach Klassen und erstelle ihre Zeitpläne
+            # group students
             class_schedules = {}
             for student in self.student_preferences:
                 class_name = student.student_id.split('_')[0]
                 if class_name not in class_schedules:
                     class_schedules[class_name] = []
                 
-                # Sammle alle Termine für diesen Schüler
+                # collect all appointments
                 student_schedule = []
                 realized_wishes = []
                 for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
@@ -198,7 +183,7 @@ class SchedulerService:
                     if not session_found:
                         realized_wishes.append(False)
                 
-                # Berechne Erfüllungsscore
+                # calculate Erfüllungsscore
                 satisfaction_score = student.get_satisfaction_score(realized_wishes)
                 
                 class_schedules[class_name].append({
@@ -231,12 +216,12 @@ class SchedulerService:
             for class_name, students in sorted(class_schedules.items()):
                 students_processed = 0
                 while students_processed < len(students):
-                    # Take up to 4 students for a page
+                    # 4 students for a page
                     page_students = students[students_processed:students_processed+4]
                     
-                    # Create 4 equal areas on the page
+                    # students
                     for student in page_students:
-                        # Header for each student
+                        # Header
                         story.append(Paragraph(
                             f"{student['name']} - Klasse {class_name} - Score: {student['score']:.1f}%",
                             title_style
@@ -256,10 +241,10 @@ class SchedulerService:
                             schedule_data,
                             colWidths=[60*mm, 60*mm, 30*mm, 20*mm],
                             style=TableStyle([
-                                ('GRID', (0,0), (-1,-1), 0.25, colors.black),
+                                ('GRID', (0,0), (-1,-1), 0.25, colors.red),
                                 ('BACKGROUND', (0,0), (-1,0), colors.grey),
                                 ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                                ('ALIGN', (0,1), (-2,-1), 'LEFT'),
                                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
                                 ('FONTSIZE', (0,0), (-1,0), 10),
                                 ('BOTTOMPADDING', (0,0), (-1,0), 12),
@@ -289,9 +274,10 @@ class SchedulerService:
                 f"Fehler beim Exportieren der Schülerzeitpläne: {str(e)}"
             )
 
-    def export_attendance_lists(self):
+    def export_attendance_lists(self, preview_mode=False):
         """
         Exportiert Anwesenheitslisten für jede Veranstaltung als PDF.
+        In der Vorschau werden nur die ersten 6 Unternehmen angezeigt.
         """
         try:
             from reportlab.lib import colors
@@ -318,24 +304,37 @@ class SchedulerService:
                 key=lambda x: (x[0][0], x[0][1])  # Sort by company name, then slot
             )
             
+            # In preview mode, limit to first 6 companies because it gets laggy if not
+            if preview_mode:
+                # Get unique company names ToDo: fachrichtung noch nicht berücksichtigt
+                company_names = list(set(company_name for (company_name, _), _ in sorted_sessions))
+                # Limit to first 6 companies
+                if len(company_names) > 6:
+                    company_names = company_names[:6]
+                # Filter sessions to only include these companies
+                sorted_sessions = [(key, session) for (key, session) in sorted_sessions 
+                                  if key[0] in company_names]
+            
             for (company_name, slot_idx), session in sorted_sessions:
                 # Header
                 story.append(Paragraph(
                     f"<b>{company_name}</b><br/>"
-                    f"Time slot: {session.time_slot} ({session.time_range})<br/>"
-                    f"Room: {session.room}",
+                    f"Zeitfenster: {session.time_slot} ({session.time_range})<br/>"
+                    f"Raum: {session.room}",
                     styles['Heading1']
                 ))
                 
                 # Attendee list
-                data = [['Nr.', 'Name', 'Class', 'Signature']]
+                data = [['Nr.', 'Name', 'Klasse', 'Unterschrift']]
                 for i, student in enumerate(sorted(session.students, key=lambda x: x['name']), 1):
                     class_name = student['id'].split('_')[0]
                     data.append([str(i), student['name'], class_name, ''])
                 
-                # does not work yet
-                for i in range(5):
-                    data.append([str(len(data)), '', '', ''])
+                # Add empty rows
+                empty_rows = [['', '', '', ''] for _ in range(5)]
+                for i, empty_row in enumerate(empty_rows, len(data)):
+                    empty_row[0] = str(i)
+                data.extend(empty_rows)
                 
                 t = Table(
                     data,
@@ -367,6 +366,6 @@ class SchedulerService:
             
         except Exception as e:
             messagebox.showerror(
-                "Export Error",
+                "Export Fehler",
                 f"Fehler beim Exportieren der Anwesenheitslisten: {str(e)}"
             )
