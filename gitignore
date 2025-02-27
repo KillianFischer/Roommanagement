@@ -1,9 +1,0 @@
-# Environment variables
-.env
-.env.*
-
-# Python bytecode
-*.py[cod]
-__pycache__/
-*.so
-*.pyc
