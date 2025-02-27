@@ -2,4 +2,6 @@ pandas
 openpyxl
 reportlab
 python-dotenv
-tkinter
+pytest
+pytest-cov
+reportlab
