@@ -17,15 +17,15 @@ class RoomManagementApp:
         # color scheme ToDo: dark mode, modern
         self.colors = {
             'bg': '#1e1e1e',
-            'fg': '#ffffff',
-            'accent': '#007acc',
-            'accent_light': '#0098ff',
-            'secondary_bg': '#252526',
-            'border': '#333333',
-            'error': '#ff3333',
-            'success': '#33cc33',
-            'header_bg': '#2d2d2d',
-            'hover': '#2a2d2e'
+            'fg': '#1e1e1e',
+            'accent': '#1e1e1e',
+            'accent_light': '#1e1e1e',
+            'secondary_bg': '#1e1e1e',
+            'border': '#1e1e1e',
+            'error': '#1e1e1e',
+            'success': '#1e1e1e',
+            'header_bg': '#1e1e1e',
+            'hover': '#1e1e1e'
         }
 
         # styles
@@ -890,7 +890,7 @@ class RoomManagementApp:
                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0,0), (-1,0), 10),
                 ('BOTTOMPADDING', (0,0), (-1,0), 12),
-                ('BACKGROUND', (0,1), (-1,-1), colors.white),
+                ('BACKGROUND', (0,1), (-1,-1), colors.black),
                 ('TEXTCOLOR', (0,1), (-1,-1), colors.black),
                 ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
                 ('FONTSIZE', (0,1), (-1,-1), 9),

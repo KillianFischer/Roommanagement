@@ -97,11 +97,6 @@ class SchedulerService:
             company_rooms = {}
             available_rooms = self.rooms.copy()
             
-<<<<<<< HEAD:services/scheduler.py
-            # Track which rooms are assigned to each time slot
-            assigned_rooms = {i: set() for i in range(len(self.time_slots))}
-
-=======
             # for Polizei - assign Aula
             polizei_company = next((company for company in sorted_companies if company.name.strip() == "Polizei"), None)
             if polizei_company:
@@ -119,7 +114,6 @@ class SchedulerService:
                         self.schedule[(polizei_company.name, slot_idx)] = session
             
             # non police companies
->>>>>>> develop:src/services/scheduler.py
             for company in sorted_companies:
                 if not available_rooms:
                     available_rooms = self.rooms.copy()
@@ -131,9 +125,7 @@ class SchedulerService:
                     slot_idx = company.earliest_slot + slot_offset
                     slot_letter, time_range = self.time_slots[slot_idx]
 
-                    # Check if the room is already assigned for this time slot
-                    if company_room in assigned_rooms[slot_idx]:
-                        continue  # Skip this company if the room is already assigned
+
 
                     session = CompanySession(
                         company=company,
@@ -142,11 +134,6 @@ class SchedulerService:
                         time_range=time_range
                     )
                     self.schedule[(company.name, slot_idx)] = session
-<<<<<<< HEAD:services/scheduler.py
-                    assigned_rooms[slot_idx].add(company_room)  # Mark room as assigned
-                    break  # Once assigned to a slot, break out of the loop
-=======
->>>>>>> develop:src/services/scheduler.py
 
             return True
 
