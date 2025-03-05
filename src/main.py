@@ -15,30 +15,24 @@ class RoomManagementApp:
         self.root.title("Room Management")
         self.root.geometry("1200x800")
 
-        # Scheduler instance
         self.scheduler = SchedulerService()
 
-        # Load environment variables and setup import folder
         self.dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.import_folder = os.path.join(base_dir, os.getenv("IMPORT_FOLDER", "import/"))
 
-        # Create import folder if it doesn't exist
         if self.dev_mode and not os.path.exists(self.import_folder):
             os.makedirs(self.import_folder)
 
         self.main_frame = ttk.Frame(self.root, padding="10")
         self.main_frame.grid(row=0, column=0, sticky="nsew")
 
-        # Setup tabs
         self.notebook = ttk.Notebook(self.main_frame)
         self.notebook.grid(row=0, column=0, sticky="nsew")
 
-        # Import tab
         self.import_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.import_frame, text="Daten importieren")
 
-        # Canvas and scrollbar
         self.import_canvas = tk.Canvas(self.import_frame, highlightthickness=0)
         self.import_scrollbar = ttk.Scrollbar(
             self.import_frame,
@@ -48,7 +42,6 @@ class RoomManagementApp:
 
         self.import_canvas.configure(yscrollcommand=self.import_scrollbar.set)
 
-        # Container for sections
         self.import_sections = ttk.Frame(self.import_canvas)
 
         self.import_canvas_window = self.import_canvas.create_window(
@@ -64,7 +57,6 @@ class RoomManagementApp:
         self.import_frame.columnconfigure(0, weight=1)
         self.import_frame.rowconfigure(0, weight=1)
 
-        # Bind events for scrolling
         self.import_canvas.bind("<Configure>", self._on_canvas_configure)
         self.import_sections.bind("<Configure>", self._on_frame_configure)
         self.import_canvas.bind_all(
@@ -548,42 +540,47 @@ class RoomManagementApp:
             messagebox.showerror("Fehler", "Bitte erst den Zeitplan generieren!")
             return
 
-        # Clear previous preview
         for widget in self.student_preview_frame.winfo_children():
             widget.destroy()
 
-        # Group students by class
+        number_to_company = {}
+        for idx, company in enumerate(self.scheduler.companies, 1):
+            normalized_name = company.name.strip()
+            number_to_company[str(idx)] = normalized_name
+            number_to_company[idx] = normalized_name
+
         class_schedules = {}
         for student in self.scheduler.student_preferences:
             class_name = student.student_id.split("_")[0]
             if class_name not in class_schedules:
                 class_schedules[class_name] = []
 
-            # Collect appointments for this student
             student_schedule = []
-            realized_wishes = []
-            for slot_idx, (slot_letter, time_range) in enumerate(
-                self.scheduler.time_slots
-            ):
-                session_found = False
-                for wish_idx, wish in enumerate(student.wishes):
-                    key = (str(wish).strip(), slot_idx)
+            realized_wishes = [False] * len(student.wishes)
+            
+            for wish_idx, wish in enumerate(student.wishes):
+                if not wish:
+                    continue
+                    
+                try:
+                    wish_num = int(float(str(wish).strip()))
+                    company_name = number_to_company.get(wish_num, str(wish).strip())
+                except (ValueError, TypeError):
+                    company_name = str(wish).strip()
+                
+                for slot_idx, (slot_letter, time_range) in enumerate(self.scheduler.time_slots):
+                    key = (company_name, slot_idx)
                     if key in self.scheduler.schedule:
                         session = self.scheduler.schedule[key]
                         if any(s["id"] == student.student_id for s in session.students):
-                            student_schedule.append(
-                                {
-                                    "time": f"{slot_letter} ({time_range})",
-                                    "company": str(wish).strip(),
-                                    "room": session.room,
-                                    "wish_number": wish_idx + 1,
-                                }
-                            )
-                            realized_wishes.append(True)
-                            session_found = True
+                            realized_wishes[wish_idx] = True
+                            student_schedule.append({
+                                "time": f"{slot_letter} ({time_range})",
+                                "company": company_name,
+                                "room": session.room,
+                                "wish_number": wish_idx + 1,
+                            })
                             break
-                if not session_found:
-                    realized_wishes.append(False)
 
             satisfaction_score = student.get_satisfaction_score(realized_wishes)
             class_schedules[class_name].append(
@@ -606,7 +603,7 @@ class RoomManagementApp:
             for student in students:
                 ttk.Label(
                     self.student_preview_frame,
-                    text=f"{student['name']} - Bewertung: {student['score']:.1f}%",
+                    text=f"{student['name']} - Erfüllungsscore: {student['score']:.1f}%",
                 ).grid(row=row, column=0, columnspan=4, pady=(10, 5), sticky="w")
                 row += 1
 
@@ -636,7 +633,6 @@ class RoomManagementApp:
                     ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
                     row += 1
 
-        # Update canvas scroll region
         self.student_preview_frame.update_idletasks()
         self.student_preview_canvas.configure(
             scrollregion=self.student_preview_canvas.bbox("all")
@@ -674,21 +670,27 @@ class RoomManagementApp:
         row = 0
 
         for (company_name, slot_idx), session in sorted_sessions:
+            # Get time slot information
+            slot_letter, time_range = self.scheduler.time_slots[slot_idx]
+            
+            # Company header
             ttk.Label(
                 self.attendance_preview_frame,
                 text=f"{company_name}",
             ).grid(row=row, column=0, columnspan=4, pady=(20, 5), sticky="w")
             row += 1
 
+            # Time slot and room information
             ttk.Label(
                 self.attendance_preview_frame,
-                text=f"Zeitslot {slot_idx+1}",
+                text=f"Zeitfenster: {slot_letter} ({time_range}) - Raum: {session.room}",
             ).grid(row=row, column=0, columnspan=4, pady=(0, 5), sticky="w")
             row += 1
 
+            # Attendance list headers
             ttk.Label(
                 self.attendance_preview_frame,
-                text="Klasse",
+                text="Nr.",
             ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
             ttk.Label(
                 self.attendance_preview_frame,
@@ -696,7 +698,7 @@ class RoomManagementApp:
             ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
             ttk.Label(
                 self.attendance_preview_frame,
-                text="Vorname",
+                text="Klasse",
             ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
             ttk.Label(
                 self.attendance_preview_frame,
@@ -704,31 +706,32 @@ class RoomManagementApp:
             ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
             row += 1
 
-            for i, student in enumerate(session.students):
+            # Student rows - sort by name
+            for i, student in enumerate(sorted(session.students, key=lambda x: x["name"]), 1):
                 class_name = student["id"].split("_")[0]
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text=class_name,
+                    text=str(i),
                 ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text=student["name"].split(", ")[0],
+                    text=student["name"],
                 ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text=student["name"].split(", ")[1] if ", " in student["name"] else "",
+                    text=class_name,
                 ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="",
+                    text="________________",
                 ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
                 row += 1
 
             # Add empty rows for additional students
-            for i in range(3):
+            for i in range(5):
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="",
+                    text=str(len(session.students) + i + 1),
                 ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
@@ -740,7 +743,7 @@ class RoomManagementApp:
                 ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="",
+                    text="________________",
                 ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
                 row += 1
 

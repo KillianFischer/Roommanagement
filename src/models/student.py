@@ -48,8 +48,12 @@ class StudentPreference:
         self, realized_wishes: List[bool], max_wishes: int = 6
     ) -> float:
         total_points = 0
-        max_points = sum(range(max_wishes, 0, -1))
+        max_points = 21  # Sum of 6+5+4+3+2+1
+        
+        # Calculate points based on realized wishes
         for i, wish in enumerate(realized_wishes):
-            if wish:
-                total_points += max_wishes - i
+            if wish and i < max_wishes:
+                # 1st wish = 6 points, 2nd wish = 5 points, etc.
+                total_points += (max_wishes - i)
+                
         return (total_points / max_points) * 100

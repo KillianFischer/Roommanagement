@@ -47,23 +47,21 @@ class SchedulerService:
     def load_rooms(self, df: pd.DataFrame) -> bool:
         if df is None or df.empty:
             return False
-        self.rooms = [
-            str(int(room))
-            for room in df.iloc[:, 0].tolist()
-            if pd.notna(room)
-            and str(room).strip() != "Aula"
-            and str(room).strip().isdigit()
-        ]
+        
+        # Check if "Raum" is in the columns, if not use the first column
+        if "Raum" in df.columns:
+            self.rooms = [str(row["Raum"]).strip() for _, row in df.iterrows()]
+        else:
+            # Use the first column (index 0)
+            self.rooms = [str(row[0]).strip() for _, row in df.iterrows()]
+        
         return True
 
     def is_data_loaded(self) -> bool:
-        return all(
-            [
-                self.student_preferences is not None
-                and len(self.student_preferences) > 0,
-                self.companies is not None and len(self.companies) > 0,
-                self.rooms is not None and len(self.rooms) > 0,
-            ]
+        return (
+            self.student_preferences is not None
+            and self.companies is not None
+            and self.rooms is not None
         )
 
     def generate_schedule(self) -> bool:
@@ -80,7 +78,6 @@ class SchedulerService:
             for student in self.student_preferences:
                 if student.wishes:
                     first_wish = str(student.wishes[0]).strip()
-                    # Try: to convert to number, if not possible use the string directly
                     try:
                         wish_num = int(float(first_wish))
                         company_name = number_to_company.get(wish_num, first_wish)
@@ -110,7 +107,6 @@ class SchedulerService:
             company_rooms = {}
             available_rooms = self.rooms.copy()
 
-            # for Polizei - assign Aula
             polizei_company = next(
                 (
                     company
@@ -122,7 +118,6 @@ class SchedulerService:
             if polizei_company:
                 company_rooms["Polizei"] = "Aula"
                 sorted_companies.remove(polizei_company)
-                # ToDo
                 for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
                     if slot_idx >= polizei_company.earliest_slot:
                         session = CompanySession(
@@ -133,14 +128,12 @@ class SchedulerService:
                         )
                         self.schedule[(polizei_company.name, slot_idx)] = session
 
-            # non police companies
             for company in sorted_companies:
                 if not available_rooms:
                     available_rooms = self.rooms.copy()
                 company_room = available_rooms.pop(0)
                 company_rooms[company.name] = company_room
 
-                # earliest slot
                 for slot_offset in range(len(self.time_slots) - company.earliest_slot):
                     slot_idx = company.earliest_slot + slot_offset
                     slot_letter, time_range = self.time_slots[slot_idx]
@@ -151,6 +144,31 @@ class SchedulerService:
                         time_range=time_range,
                     )
                     self.schedule[(company.name, slot_idx)] = session
+
+            for student in self.student_preferences:
+                assigned_slots = set()
+                
+                for wish_idx, wish in enumerate(student.wishes):
+                    if not wish:
+                        continue
+                        
+                    try:
+                        wish_num = int(float(str(wish).strip()))
+                        company_name = number_to_company.get(wish_num, str(wish).strip())
+                    except (ValueError, TypeError):
+                        company_name = str(wish).strip()
+                    
+                    for slot_idx in range(len(self.time_slots)):
+                        if slot_idx in assigned_slots:
+                            continue
+                            
+                        key = (company_name, slot_idx)
+                        if key in self.schedule:
+                            session = self.schedule[key]
+                            if not session.is_full():
+                                session.add_student(student.student_id, student.name)
+                                assigned_slots.add(slot_idx)
+                                break
 
             return True
 
@@ -165,10 +183,6 @@ class SchedulerService:
         return self.schedule
 
     def export_student_schedules(self):
-        """
-        Exportiert Schülerzeitpläne als PDF mit 4 Schülern pro Seite,
-        sortiert nach Klassen.
-        """
         try:
             from reportlab.lib import colors
             from reportlab.lib.pagesizes import A4
@@ -181,42 +195,46 @@ class SchedulerService:
                 Paragraph,
             )
 
-            # group students
+            number_to_company = {}
+            for idx, company in enumerate(self.companies, 1):
+                normalized_name = company.name.strip()
+                number_to_company[str(idx)] = normalized_name
+                number_to_company[idx] = normalized_name
+
             class_schedules = {}
             for student in self.student_preferences:
                 class_name = student.student_id.split("_")[0]
                 if class_name not in class_schedules:
                     class_schedules[class_name] = []
 
-                # collect all appointments
                 student_schedule = []
-                realized_wishes = []
-                for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
-                    session_found = False
-                    for wish_idx, wish in enumerate(student.wishes):
-                        key = (str(wish).strip(), slot_idx)
+                realized_wishes = [False] * len(student.wishes)
+                
+                for wish_idx, wish in enumerate(student.wishes):
+                    if not wish:
+                        continue
+                        
+                    try:
+                        wish_num = int(float(str(wish).strip()))
+                        company_name = number_to_company.get(wish_num, str(wish).strip())
+                    except (ValueError, TypeError):
+                        company_name = str(wish).strip()
+                    
+                    for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
+                        key = (company_name, slot_idx)
                         if key in self.schedule:
                             session = self.schedule[key]
-                            if any(
-                                s["id"] == student.student_id for s in session.students
-                            ):
-                                student_schedule.append(
-                                    {
-                                        "time": f"{slot_letter} ({time_range})",
-                                        "company": str(wish).strip(),
-                                        "room": session.room,
-                                        "wish_number": wish_idx + 1,
-                                    }
-                                )
-                                realized_wishes.append(True)
-                                session_found = True
+                            if any(s["id"] == student.student_id for s in session.students):
+                                realized_wishes[wish_idx] = True
+                                student_schedule.append({
+                                    "time": f"{slot_letter} ({time_range})",
+                                    "company": company_name,
+                                    "room": session.room,
+                                    "wish_number": wish_idx + 1,
+                                })
                                 break
-                    if not session_found:
-                        realized_wishes.append(False)
 
-                # calculate Erfüllungsscore
                 satisfaction_score = student.get_satisfaction_score(realized_wishes)
-
                 class_schedules[class_name].append(
                     {
                         "name": student.name,
@@ -225,7 +243,6 @@ class SchedulerService:
                     }
                 )
 
-            # Create PDF
             doc = SimpleDocTemplate(
                 "student_schedules.pdf",
                 pagesize=A4,
@@ -239,30 +256,28 @@ class SchedulerService:
             title_style = ParagraphStyle(
                 "CustomTitle", parent=styles["Heading1"], fontSize=12, spaceAfter=10
             )
+            class_style = ParagraphStyle(
+                "ClassTitle", parent=styles["Heading1"], fontSize=14, spaceAfter=10
+            )
 
             story = []
 
-            # For each class
             for class_name, students in sorted(class_schedules.items()):
+                story.append(Paragraph(f"Klasse {class_name}", class_style))
+                
                 students_processed = 0
                 while students_processed < len(students):
-                    # 4 students for a page
-                    page_students = students[
-                        students_processed : students_processed + 4
-                    ]
+                    page_students = students[students_processed:students_processed + 4]
 
-                    # students
                     for student in page_students:
-                        # Header
                         story.append(
                             Paragraph(
-                                f"{student['name']} - Klasse {class_name} - Score: {student['score']:.1f}%",
+                                f"{student['name']} - Bewertung: {student['score']:.1f}%",
                                 title_style,
                             )
                         )
 
-                        # Schedule table
-                        schedule_data = [["Time", "Company", "Room", "Wish"]]
+                        schedule_data = [["Zeit", "Unternehmen", "Raum", "Wunsch"]]
                         for appointment in student["schedule"]:
                             schedule_data.append(
                                 [
@@ -278,10 +293,11 @@ class SchedulerService:
                             colWidths=[60 * mm, 60 * mm, 30 * mm, 20 * mm],
                             style=TableStyle(
                                 [
-                                    ("GRID", (0, 0), (-1, -1), 0.25, colors.red),
+                                    ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
                                     ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
                                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                                    ("ALIGN", (0, 1), (-2, -1), "LEFT"),
+                                    ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                                    ("ALIGN", (0, 1), (-1, -1), "LEFT"),
                                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                                     ("FONTSIZE", (0, 0), (-1, 0), 10),
                                     ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
@@ -313,10 +329,6 @@ class SchedulerService:
             )
 
     def export_attendance_lists(self, preview_mode=False):
-        """
-        Exportiert Anwesenheitslisten für jede Veranstaltung als PDF.
-        In der Vorschau werden nur die ersten 6 Unternehmen angezeigt.
-        """
         try:
             from reportlab.lib import colors
             from reportlab.lib.pagesizes import A4
@@ -341,22 +353,17 @@ class SchedulerService:
             styles = getSampleStyleSheet()
             story = []
 
-            # Sort by company name and time slot
             sorted_sessions = sorted(
                 self.schedule.items(),
-                key=lambda x: (x[0][0], x[0][1]),  # Sort by company name, then slot
+                key=lambda x: (x[0][0], x[0][1]),
             )
 
-            # In preview mode, limit to first 6 companies because it gets laggy if not
             if preview_mode:
-                # Get unique company names ToDo: fachrichtung noch nicht berücksichtigt
                 company_names = list(
                     set(company_name for (company_name, _), _ in sorted_sessions)
                 )
-                # Limit to first 6 companies
                 if len(company_names) > 6:
                     company_names = company_names[:6]
-                # Filter sessions to only include these companies
                 sorted_sessions = [
                     (key, session)
                     for (key, session) in sorted_sessions
@@ -364,17 +371,21 @@ class SchedulerService:
                 ]
 
             for (company_name, slot_idx), session in sorted_sessions:
-                # Header
                 story.append(
                     Paragraph(
-                        f"<b>{company_name}</b><br/>"
-                        f"Zeitfenster: {session.time_slot} ({session.time_range})<br/>"
-                        f"Raum: {session.room}",
+                        f"<b>{company_name}</b>",
                         styles["Heading1"],
                     )
                 )
+                
+                story.append(
+                    Paragraph(
+                        f"Zeitfenster: {session.time_slot} ({session.time_range})<br/>"
+                        f"Raum: {session.room}",
+                        styles["Normal"],
+                    )
+                )
 
-                # Attendee list
                 data = [["Nr.", "Name", "Klasse", "Unterschrift"]]
                 for i, student in enumerate(
                     sorted(session.students, key=lambda x: x["name"]), 1
@@ -382,7 +393,6 @@ class SchedulerService:
                     class_name = student["id"].split("_")[0]
                     data.append([str(i), student["name"], class_name, ""])
 
-                # Add empty rows
                 empty_rows = [["", "", "", ""] for _ in range(5)]
                 for i, empty_row in enumerate(empty_rows, len(data)):
                     empty_row[0] = str(i)
@@ -406,6 +416,7 @@ class SchedulerService:
                             ("FONTSIZE", (0, 1), (-1, -1), 10),
                             ("TOPPADDING", (0, 1), (-1, -1), 6),
                             ("BOTTOMPADDING", (0, 1), (-1, -1), 6),
+                            ("LEADING", (0, 1), (-1, -1), 8),
                         ]
                     ),
                 )
@@ -420,6 +431,6 @@ class SchedulerService:
 
         except Exception as e:
             messagebox.showerror(
-                "Export Fehler",
+                "Export Error",
                 f"Fehler beim Exportieren der Anwesenheitslisten: {str(e)}",
             )
