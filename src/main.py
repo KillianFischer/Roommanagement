@@ -15,139 +15,14 @@ class RoomManagementApp:
         self.root.title("Room Management")
         self.root.geometry("1200x800")
 
-        # color scheme ToDo: dark mode, modern
-        self.colors = {
-            "bg": "#1e1e1e",
-            "fg": "#ffffff",
-            "accent": "#007acc",
-            "accent_light": "#0098ff",
-            "secondary_bg": "#252526",
-            "border": "#333333",
-            "error": "#ff3333",
-            "success": "#33cc33",
-            "header_bg": "#2d2d2d",
-            "hover": "#2a2d2e",
-        }
-
-        # styles
-        style = ttk.Style()
-
-        # main theme
-        style.configure("TFrame", background=self.colors["bg"])
-        style.configure("Secondary.TFrame", background=self.colors["secondary_bg"])
-
-        # notebook style ToDo: maybe change?
-        style.configure("TNotebook", background=self.colors["bg"])
-        style.configure(
-            "TNotebook.Tab",
-            padding=[15, 8],
-            background=self.colors["secondary_bg"],
-            foreground=self.colors["fg"],
-            font=("Helvetica", 10),
-        )
-        style.map(
-            "TNotebook.Tab",
-            background=[("selected", self.colors["accent"])],
-            foreground=[("selected", self.colors["fg"])],
-        )
-
-        # button styles
-        style.configure(
-            "TButton",
-            padding=8,
-            font=("Helvetica", 10),
-            background=self.colors["secondary_bg"],
-            foreground=self.colors["fg"],
-        )
-        style.map(
-            "TButton",
-            background=[("active", self.colors["hover"])],
-            foreground=[("active", self.colors["fg"])],
-        )
-
-        style.configure(
-            "Action.TButton",
-            padding=[12, 8],
-            font=("Helvetica", 10, "bold"),
-            background=self.colors["accent"],
-            foreground=self.colors["fg"],
-        )
-        style.map(
-            "Action.TButton",
-            background=[("active", self.colors["accent_light"])],
-            foreground=[("active", self.colors["fg"])],
-        )
-
-        # Conftreeview styles
-        style.configure(
-            "Treeview",
-            background=self.colors["secondary_bg"],
-            foreground=self.colors["fg"],
-            fieldbackground=self.colors["secondary_bg"],
-            font=("Helvetica", 10),
-            rowheight=30,
-        )
-        style.configure(
-            "Treeview.Heading",
-            background=self.colors["header_bg"],
-            foreground=self.colors["fg"],
-            font=("Helvetica", 10, "bold"),
-        )
-        style.map(
-            "Treeview",
-            background=[("selected", self.colors["accent"])],
-            foreground=[("selected", self.colors["fg"])],
-        )
-
-        style.configure(
-            "Schedule.Treeview",
-            background=self.colors["secondary_bg"],
-            foreground=self.colors["fg"],
-            fieldbackground=self.colors["secondary_bg"],
-            font=("Helvetica", 10),
-            rowheight=45,
-        )
-
-        # label styles
-        style.configure(
-            "TLabel",
-            background=self.colors["bg"],
-            foreground=self.colors["fg"],
-            font=("Helvetica", 10),
-        )
-        style.configure(
-            "Header.TLabel",
-            background=self.colors["bg"],
-            foreground=self.colors["fg"],
-            font=("Helvetica", 12, "bold"),
-        )
-        style.configure(
-            "Title.TLabel",
-            background=self.colors["bg"],
-            foreground=self.colors["fg"],
-            font=("Helvetica", 14, "bold"),
-        )
-
-        # scrollbar style
-        style.configure(
-            "Vertical.TScrollbar",
-            background=self.colors["secondary_bg"],
-            troughcolor=self.colors["bg"],
-            arrowcolor=self.colors["fg"],
-        )
-
-        # canvas style for previews
-        style.configure("Preview.TCanvas", background=self.colors["secondary_bg"])
-
-        # root window background
-        self.root.configure(bg=self.colors["bg"])
-
         # Scheduler instance
         self.scheduler = SchedulerService()
 
         # Load environment variables and setup import folder
         self.dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
-        self.import_folder = os.getenv("IMPORT_FOLDER", "import/")
+        # Get the import folder path relative to the project root, not the src directory
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.import_folder = os.path.join(base_dir, os.getenv("IMPORT_FOLDER", "import/"))
 
         # Create import folder if it doesn't exist
         if self.dev_mode and not os.path.exists(self.import_folder):
@@ -165,21 +40,18 @@ class RoomManagementApp:
         self.notebook.add(self.import_frame, text="Daten importieren")
 
         # canvas and scrollbar for the entire import tab
-        self.import_canvas = tk.Canvas(
-            self.import_frame, background=self.colors["bg"], highlightthickness=0
-        )
+        self.import_canvas = tk.Canvas(self.import_frame, highlightthickness=0)
         self.import_scrollbar = ttk.Scrollbar(
             self.import_frame,
             orient="vertical",
             command=self.import_canvas.yview,
-            style="Vertical.TScrollbar",
         )
 
         # canvas
         self.import_canvas.configure(yscrollcommand=self.import_scrollbar.set)
 
         # main container for sections
-        self.import_sections = ttk.Frame(self.import_canvas, style="Secondary.TFrame")
+        self.import_sections = ttk.Frame(self.import_canvas)
 
         # window in canvas
         self.import_canvas_window = self.import_canvas.create_window(
@@ -205,10 +77,10 @@ class RoomManagementApp:
         )
 
         # Student wishes section
-        section_frame = ttk.Frame(self.import_sections, style="Secondary.TFrame")
+        section_frame = ttk.Frame(self.import_sections)
         section_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 20))
 
-        ttk.Label(section_frame, text="Schülerwünsche", style="Title.TLabel").grid(
+        ttk.Label(section_frame, text="Schülerwünsche").grid(
             row=0, column=0, columnspan=2, pady=(0, 10), sticky="w"
         )
 
@@ -216,30 +88,26 @@ class RoomManagementApp:
             section_frame,
             text="Import",
             command=self.import_preferences,
-            style="Action.TButton",
         )
         import_btn.grid(row=1, column=0, pady=2, padx=(0, 10), sticky="w")
 
         self.preferences_status = ttk.Label(
             section_frame,
             text="No file imported",
-            foreground=self.colors["fg"],
-            style="TLabel",
         )
         self.preferences_status.grid(row=1, column=1, pady=2, sticky="w")
 
         # frame for preview with scrollbar
-        preview_frame = ttk.Frame(section_frame, style="Secondary.TFrame")
+        preview_frame = ttk.Frame(section_frame)
         preview_frame.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky="nsew")
 
         self.preferences_preview = ttk.Treeview(
-            preview_frame, height=6, style="Treeview"
+            preview_frame, height=6
         )
         preferences_scrollbar = ttk.Scrollbar(
             preview_frame,
             orient="vertical",
             command=self.preferences_preview.yview,
-            style="Vertical.TScrollbar",
         )
         self.preferences_preview.configure(yscrollcommand=preferences_scrollbar.set)
 
@@ -250,10 +118,10 @@ class RoomManagementApp:
         section_frame.columnconfigure(1, weight=1)
 
         # Company list section
-        section_frame = ttk.Frame(self.import_sections, style="Secondary.TFrame")
+        section_frame = ttk.Frame(self.import_sections)
         section_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 20))
 
-        ttk.Label(section_frame, text="Unternehmensliste", style="Title.TLabel").grid(
+        ttk.Label(section_frame, text="Unternehmensliste").grid(
             row=0, column=0, columnspan=2, pady=(0, 10), sticky="w"
         )
 
@@ -261,28 +129,24 @@ class RoomManagementApp:
             section_frame,
             text="Import",
             command=self.import_companies,
-            style="Action.TButton",
         )
         import_btn.grid(row=1, column=0, pady=2, padx=(0, 10), sticky="w")
 
         self.companies_status = ttk.Label(
             section_frame,
             text="No file imported",
-            foreground=self.colors["fg"],
-            style="TLabel",
         )
         self.companies_status.grid(row=1, column=1, pady=2, sticky="w")
 
         # frame for preview with scrollbar
-        preview_frame = ttk.Frame(section_frame, style="Secondary.TFrame")
+        preview_frame = ttk.Frame(section_frame)
         preview_frame.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky="nsew")
 
-        self.companies_preview = ttk.Treeview(preview_frame, height=6, style="Treeview")
+        self.companies_preview = ttk.Treeview(preview_frame, height=6)
         companies_scrollbar = ttk.Scrollbar(
             preview_frame,
             orient="vertical",
             command=self.companies_preview.yview,
-            style="Vertical.TScrollbar",
         )
         self.companies_preview.configure(yscrollcommand=companies_scrollbar.set)
 
@@ -293,10 +157,10 @@ class RoomManagementApp:
         section_frame.columnconfigure(1, weight=1)
 
         # Room list section
-        section_frame = ttk.Frame(self.import_sections, style="Secondary.TFrame")
+        section_frame = ttk.Frame(self.import_sections)
         section_frame.grid(row=2, column=0, sticky="nsew")
 
-        ttk.Label(section_frame, text="Raumliste", style="Title.TLabel").grid(
+        ttk.Label(section_frame, text="Raumliste").grid(
             row=0, column=0, columnspan=2, pady=(0, 10), sticky="w"
         )
 
@@ -304,28 +168,24 @@ class RoomManagementApp:
             section_frame,
             text="Import",
             command=self.import_rooms,
-            style="Action.TButton",
         )
         import_btn.grid(row=1, column=0, pady=2, padx=(0, 10), sticky="w")
 
         self.rooms_status = ttk.Label(
             section_frame,
             text="No file imported",
-            foreground=self.colors["fg"],
-            style="TLabel",
         )
         self.rooms_status.grid(row=1, column=1, pady=2, sticky="w")
 
         # frame for preview with scrollbar
-        preview_frame = ttk.Frame(section_frame, style="Secondary.TFrame")
+        preview_frame = ttk.Frame(section_frame)
         preview_frame.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky="nsew")
 
-        self.rooms_preview = ttk.Treeview(preview_frame, height=6, style="Treeview")
+        self.rooms_preview = ttk.Treeview(preview_frame, height=6)
         rooms_scrollbar = ttk.Scrollbar(
             preview_frame,
             orient="vertical",
             command=self.rooms_preview.yview,
-            style="Vertical.TScrollbar",
         )
         self.rooms_preview.configure(yscrollcommand=rooms_scrollbar.set)
 
@@ -354,14 +214,12 @@ class RoomManagementApp:
             self.schedule_controls,
             text="Zeitplan generieren",
             command=self.generate_schedule,
-            style="Action.TButton",
         ).grid(row=0, column=0, padx=5)
 
         ttk.Button(
             self.schedule_controls,
             text="Zeitplan exportieren",
             command=self.export_schedule,
-            style="Action.TButton",
         ).grid(row=0, column=1, padx=5)
 
         # Schedule display frame with scrollbar
@@ -375,7 +233,6 @@ class RoomManagementApp:
         self.schedule_tree = ttk.Treeview(
             self.schedule_frame_inner,
             yscrollcommand=self.schedule_scrollbar.set,
-            style="Schedule.Treeview",
         )
         self.schedule_tree.grid(row=0, column=0, sticky="nsew")
 
@@ -498,15 +355,18 @@ class RoomManagementApp:
         self.main_frame.rowconfigure(0, weight=1)
 
     def setup_preview_tree(self, tree, columns):
+        # Configure columns
         tree["columns"] = columns
-        tree.column("#0", width=0, stretch=tk.NO)
-        for col in columns:
-            tree.column(col, anchor=tk.W, width=150)  # Increased width
-            tree.heading(col, text=col, anchor=tk.W)
+        tree["show"] = "headings"  # Hide the first empty column
 
-        # alternating row colors
-        tree.tag_configure("oddrow", background=self.colors["bg"])
-        tree.tag_configure("evenrow", background=self.colors["secondary_bg"])
+        # Set column headings and widths
+        for col in columns:
+            tree.heading(col, text=col)
+            tree.column(col, width=100)
+
+        # Configure row tags for alternating row colors
+        tree.tag_configure("oddrow")
+        tree.tag_configure("evenrow")
 
     def update_preview(self, tree, df, columns):
         for item in tree.get_children():
@@ -527,9 +387,15 @@ class RoomManagementApp:
         if self.dev_mode:
             filename = os.getenv(env_key)
             if filename:
-                filepath = os.path.normpath(os.path.join(self.import_folder, filename))
+                # Use the import_folder path which now points to the correct location
+                filepath = os.path.join(self.import_folder, filename)
                 if os.path.exists(filepath):
                     return filepath
+                else:
+                    print(f"filename from env: {filename}")
+                    print(f"filepath: {filepath}")
+                    print(f"exists: {os.path.exists(filepath)}")
+                    print("opening file dialog")
 
         return filedialog.askopenfilename(
             title=dialog_title, filetypes=[("Excel files", "*.xlsx")]
@@ -546,7 +412,6 @@ class RoomManagementApp:
                 if self.scheduler.load_student_preferences(df):
                     self.preferences_status.config(
                         text=f"Imported: {os.path.basename(file_path)}",
-                        foreground="green",
                     )
                     cols = ["Klasse", "Name", "Vorname"] + [
                         f"Wahl {i}" for i in range(1, 7)
@@ -555,11 +420,11 @@ class RoomManagementApp:
                     self.update_preview(self.preferences_preview, df, cols)
                 else:
                     self.preferences_status.config(
-                        text="Ungültiges Format", foreground="red"
+                        text="Ungültiges Format",
                     )
             except Exception as e:
                 self.preferences_status.config(
-                    text=f"Error: {str(e)}", foreground="red"
+                    text=f"Error: {str(e)}",
                 )
 
     def import_companies(self):
@@ -571,7 +436,6 @@ class RoomManagementApp:
                 if self.scheduler.load_companies(df):
                     self.companies_status.config(
                         text=f"Imported: {os.path.basename(file_path)}",
-                        foreground="green",
                     )
                     cols = [
                         "Unternehmen",
@@ -584,7 +448,7 @@ class RoomManagementApp:
                     self.update_preview(self.companies_preview, df, cols)
                 else:
                     self.companies_status.config(
-                        text="Ungültiges Format", foreground="red"
+                        text="Ungültiges Format",
                     )
             except Exception as e:
                 self.companies_status.config(text=f"Error: {str(e)}", foreground="red")
@@ -597,7 +461,6 @@ class RoomManagementApp:
                 if self.scheduler.load_rooms(df):
                     self.rooms_status.config(
                         text=f"Imported: {os.path.basename(file_path)}",
-                        foreground="green",
                     )
                     self.setup_preview_tree(self.rooms_preview, ["Raum"])
                     self.update_preview(
@@ -694,59 +557,14 @@ class RoomManagementApp:
         for widget in self.student_preview_frame.winfo_children():
             widget.destroy()
 
-        # Group students by class
-        class_schedules = {}
-        for student in self.scheduler.student_preferences:
-            class_name = student.student_id.split("_")[0]
-            if class_name not in class_schedules:
-                class_schedules[class_name] = []
-
-            # Collect all appointments for this student
-            student_schedule = []
-            realized_wishes = []
-            for slot_idx, (slot_letter, time_range) in enumerate(
-                self.scheduler.time_slots
-            ):
-                session_found = False
-                for wish_idx, wish in enumerate(student.wishes):
-                    key = (str(wish).strip(), slot_idx)
-                    if key in self.scheduler.schedule:
-                        session = self.scheduler.schedule[key]
-                        if any(s["id"] == student.student_id for s in session.students):
-                            student_schedule.append(
-                                {
-                                    "time": f"{slot_letter} ({time_range})",
-                                    "company": str(wish).strip(),
-                                    "room": session.room,
-                                    "wish_number": wish_idx + 1,
-                                }
-                            )
-                            realized_wishes.append(True)
-                            session_found = True
-                            break
-                if not session_found:
-                    realized_wishes.append(False)
-
-            satisfaction_score = student.get_satisfaction_score(realized_wishes)
-            class_schedules[class_name].append(
-                {
-                    "name": student.name,
-                    "schedule": sorted(student_schedule, key=lambda x: x["time"]),
-                    "score": satisfaction_score,
-                }
-            )
-
-        # Create preview for each class
+        # Get student schedules
+        class_schedules = self.scheduler.get_student_schedules()
         row = 0
-        style = ttk.Style()
-        style.configure("Preview.TLabel", font=("Helvetica", 10))
-        style.configure("PreviewHeader.TLabel", font=("Helvetica", 10, "bold"))
 
         for class_name, students in sorted(class_schedules.items()):
             ttk.Label(
                 self.student_preview_frame,
                 text=f"Klasse {class_name}",
-                style="PreviewHeader.TLabel",
             ).grid(row=row, column=0, columnspan=4, pady=(20, 10), sticky="w")
             row += 1
 
@@ -755,7 +573,6 @@ class RoomManagementApp:
                 ttk.Label(
                     self.student_preview_frame,
                     text=f"{student['name']} - Bewertung: {student['score']:.1f}%",
-                    style="PreviewHeader.TLabel",
                 ).grid(row=row, column=0, columnspan=4, pady=(10, 5), sticky="w")
                 row += 1
 
@@ -764,7 +581,6 @@ class RoomManagementApp:
                     ttk.Label(
                         self.student_preview_frame,
                         text=header,
-                        style="PreviewHeader.TLabel",
                     ).grid(row=row, column=col, padx=5, pady=2, sticky="w")
                 row += 1
 
@@ -773,22 +589,18 @@ class RoomManagementApp:
                     ttk.Label(
                         self.student_preview_frame,
                         text=appointment["time"],
-                        style="Preview.TLabel",
                     ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
                     ttk.Label(
                         self.student_preview_frame,
                         text=appointment["company"],
-                        style="Preview.TLabel",
                     ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
                     ttk.Label(
                         self.student_preview_frame,
                         text=appointment["room"],
-                        style="Preview.TLabel",
                     ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
                     ttk.Label(
                         self.student_preview_frame,
                         text=str(appointment["wish_number"]),
-                        style="Preview.TLabel",
                     ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
                     row += 1
 
@@ -829,84 +641,77 @@ class RoomManagementApp:
 
         # Create preview for each session
         row = 0
-        style = ttk.Style()
-        style.configure("Preview.TLabel", font=("Helvetica", 10))
-        style.configure("PreviewHeader.TLabel", font=("Helvetica", 10, "bold"))
 
         for (company_name, slot_idx), session in sorted_sessions:
             # Session header
             ttk.Label(
                 self.attendance_preview_frame,
                 text=f"{company_name}",
-                style="PreviewHeader.TLabel",
             ).grid(row=row, column=0, columnspan=4, pady=(20, 5), sticky="w")
             row += 1
 
             ttk.Label(
                 self.attendance_preview_frame,
-                text=f"Zeitfenster: {session.time_slot} ({session.time_range})",
-                style="Preview.TLabel",
-            ).grid(row=row, column=0, columnspan=4, pady=2, sticky="w")
-            row += 1
-
-            ttk.Label(
-                self.attendance_preview_frame,
-                text=f"Raum: {session.room}",
-                style="Preview.TLabel",
-            ).grid(row=row, column=0, columnspan=4, pady=(2, 10), sticky="w")
+                text=f"Zeitslot {slot_idx+1}",
+            ).grid(row=row, column=0, columnspan=4, pady=(0, 5), sticky="w")
             row += 1
 
             # Attendance list headers
-            for col, header in enumerate(["Nr.", "Name", "Klasse", "Unterschrift"]):
-                ttk.Label(
-                    self.attendance_preview_frame,
-                    text=header,
-                    style="PreviewHeader.TLabel",
-                ).grid(row=row, column=col, padx=5, pady=2, sticky="w")
+            ttk.Label(
+                self.attendance_preview_frame,
+                text="Klasse",
+            ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
+            ttk.Label(
+                self.attendance_preview_frame,
+                text="Name",
+            ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
+            ttk.Label(
+                self.attendance_preview_frame,
+                text="Vorname",
+            ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
+            ttk.Label(
+                self.attendance_preview_frame,
+                text="Unterschrift",
+            ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
             row += 1
 
-            # Attendee rows
-            for i, student in enumerate(
-                sorted(session.students, key=lambda x: x["name"]), 1
-            ):
-                class_name = student["id"].split("_")[0]
+            # Student rows
+            for i, student in enumerate(session):
                 ttk.Label(
-                    self.attendance_preview_frame, text=str(i), style="Preview.TLabel"
+                    self.attendance_preview_frame,
+                    text=student["class"],
                 ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text=student["name"],
-                    style="Preview.TLabel",
+                    text=student["last_name"],
                 ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text=class_name,
-                    style="Preview.TLabel",
+                    text=student["first_name"],
                 ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="________________",
-                    style="Preview.TLabel",
+                    text="",
                 ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
                 row += 1
 
-            # Add empty signature lines
-            for i in range(5):
+            # Add empty rows for additional students
+            for i in range(3):
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text=str(len(session.students) + i + 1),
-                    style="Preview.TLabel",
+                    text="",
                 ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
                 ttk.Label(
-                    self.attendance_preview_frame, text="", style="Preview.TLabel"
+                    self.attendance_preview_frame,
+                    text="",
                 ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
                 ttk.Label(
-                    self.attendance_preview_frame, text="", style="Preview.TLabel"
+                    self.attendance_preview_frame,
+                    text="",
                 ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="________________",
-                    style="Preview.TLabel",
+                    text="",
                 ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
                 row += 1
 
