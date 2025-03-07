@@ -107,17 +107,12 @@ class SchedulerService:
             company_rooms = {}
             available_rooms = self.rooms.copy()
 
-            polizei_company = next(
-                (
-                    company
-                    for company in sorted_companies
-                    if company.name.strip() == "Polizei"
-                ),
-                None,
-            )
+            if "Aula" in available_rooms:
+                available_rooms.remove("Aula")
+            
+            polizei_company = next((c for c in self.companies if c.name.strip() == "Polizei"), None)
             if polizei_company:
                 company_rooms["Polizei"] = "Aula"
-                sorted_companies.remove(polizei_company)
                 for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
                     if slot_idx >= polizei_company.earliest_slot:
                         session = CompanySession(
@@ -127,10 +122,19 @@ class SchedulerService:
                             time_range=time_range,
                         )
                         self.schedule[(polizei_company.name, slot_idx)] = session
+            
+            sorted_companies = sorted(
+                [c for c in self.companies if c.name.strip() != "Polizei"],
+                key=lambda x: x.capacity,
+                reverse=True,
+            )
 
             for company in sorted_companies:
                 if not available_rooms:
                     available_rooms = self.rooms.copy()
+                    if "Aula" in available_rooms:
+                        available_rooms.remove("Aula")
+                
                 company_room = available_rooms.pop(0)
                 company_rooms[company.name] = company_room
 
