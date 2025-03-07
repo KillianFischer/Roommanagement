@@ -30,7 +30,7 @@ def sample_company_data():
             "Unternehmen": ["Company A", "Company B", "Company C"],
             "Fachrichtung": ["IT", "Engineering", "Marketing"],
             "Max. Teilnehmer": [5, 4, 3],
-            "Max. Veranstaltungen": [2, 2, 1],
+            "Min. Teilnehmer": [2, 2, 1],
             "Frühester Zeitpunkt": ["A", "B", "A"],
         }
     )

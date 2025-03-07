@@ -8,7 +8,7 @@ import pandas as pd
 class Company:
     name: str
     capacity: int
-    max_sessions: int
+    min_participants: int
     earliest_slot: int
     blocked_slots: List[int]
 
@@ -20,7 +20,16 @@ class Company:
             comp_name = str(row["Unternehmen"]).strip()
             fachrichtung = row["Fachrichtung"]
             max_teilnehmer = int(row["Max. Teilnehmer"])
-            max_veranstaltungen = int(row["Max. Veranstaltungen"])
+            
+            # Handle both "Min. Teilnehmer" and "Min." column names
+            if "Min. Teilnehmer" in df.columns:
+                min_teilnehmer = int(row["Min. Teilnehmer"])
+            elif "Min." in df.columns:
+                min_teilnehmer = int(row["Min."])
+            else:
+                # Default to 1 if no minimum column is found
+                min_teilnehmer = 1
+                
             if pd.isna(row["Frühester Zeitpunkt"]):
                 earliest = 0
             else:
@@ -31,7 +40,7 @@ class Company:
                 cls(
                     name=comp_name,
                     capacity=max_teilnehmer,
-                    max_sessions=max_veranstaltungen,
+                    min_participants=min_teilnehmer,
                     earliest_slot=earliest,
                     blocked_slots=list(range(earliest)),
                 )

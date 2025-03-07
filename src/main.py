@@ -420,6 +420,12 @@ class RoomManagementApp:
             try:
                 df = pd.read_excel(file_path)
                 df.columns = df.columns.str.strip()
+                
+                # Handle different column names for minimum participants
+                if "Min." in df.columns and "Min. Teilnehmer" not in df.columns:
+                    # Rename "Min." to "Min. Teilnehmer" for consistency
+                    df = df.rename(columns={"Min.": "Min. Teilnehmer"})
+                
                 if self.scheduler.load_companies(df):
                     self.companies_status.config(
                         text=f"Imported: {os.path.basename(file_path)}",
@@ -428,7 +434,7 @@ class RoomManagementApp:
                         "Unternehmen",
                         "Fachrichtung",
                         "Max. Teilnehmer",
-                        "Max. Veranstaltungen",
+                        "Min. Teilnehmer",
                         "Frühester Zeitpunkt",
                     ]
                     self.setup_preview_tree(self.companies_preview, cols)
