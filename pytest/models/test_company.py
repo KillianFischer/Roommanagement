@@ -11,7 +11,7 @@ def sample_company_data():
             "Unternehmen": ["Company A"],
             "Fachrichtung": ["IT"],
             "Max. Teilnehmer": [5],
-            "Max. Veranstaltungen": [2],
+            "Min. Teilnehmer": [2],
             "Frühester Zeitpunkt": ["A"],
         }
     )
@@ -22,7 +22,7 @@ def test_company_from_dataframe(sample_company_data):
     assert len(companies) == 1
     assert companies[0].name == "Company A"
     assert companies[0].capacity == 5
-    assert companies[0].max_sessions == 2
+    assert companies[0].min_participants == 2
     assert companies[0].earliest_slot == 0
 
 
@@ -30,7 +30,7 @@ def test_company_session():
     company = Company(
         name="Test Company",
         capacity=5,
-        max_sessions=2,
+        min_participants=2,
         earliest_slot=0,
         blocked_slots=[],
     )
