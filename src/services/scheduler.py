@@ -171,11 +171,18 @@ class SchedulerService:
                 
                 company_name = company.name.strip()
                 total_interest = all_wish_counts.get(company_name, 0)
-                needed_slots = min(
-                    (total_interest + company.capacity - 1) // company.capacity,
-                    len(self.time_slots) - company.earliest_slot
-                )
                 
+                # If interest ≤ 20: 1 session
+                # If 20 < interest ≤ 40: 2 sessions
+                # If 40 < interest ≤ 60: 3 sessions, etc.
+                if total_interest <= 20:
+                    needed_slots = 1
+                else:
+                    # Calculate needed slots based on 20 students per session rule
+                    needed_slots = (total_interest + 19) // 20  # Ceiling division by 20
+                    needed_slots = min(needed_slots, len(self.time_slots) - company.earliest_slot)
+                
+                # Create the required number of sessions
                 for slot_offset in range(needed_slots):
                     slot_idx = company.earliest_slot + slot_offset
                     slot_letter, time_range = self.time_slots[slot_idx]
@@ -186,6 +193,21 @@ class SchedulerService:
                         time_range=time_range,
                     )
                     self.schedule[(company.name, slot_idx)] = session
+
+            # Company_sessions for student assignment
+            company_sessions = {}
+            for (company_name, slot_idx), session in self.schedule.items():
+                if company_name not in company_sessions:
+                    company_sessions[company_name] = []
+                company_sessions[company_name].append((slot_idx, session))
+            
+            for company_name in company_sessions:
+                company_sessions[company_name].sort(key=lambda x: x[0])
+                
+                if len(company_sessions[company_name]) > 1:
+                    total_interest = all_wish_counts.get(company_name, 0)
+                    sessions_count = len(company_sessions[company_name])
+                    ideal_per_session = total_interest / sessions_count
 
             for student in self.student_preferences:
                 assigned_slots = set()
@@ -202,18 +224,29 @@ class SchedulerService:
                     
                     if (company_name, -1) in self.schedule:
                         continue
+                    
+                    # All available sessions for this company
+                    if company_name in company_sessions:
+                        sessions = company_sessions[company_name]
                         
-                    for slot_idx in range(len(self.time_slots)):
-                        if slot_idx in assigned_slots:
-                            continue
+                        # Sessions that are not in assigned slots
+                        available_sessions = []
+                        for slot_idx, session in sessions:
+                            if slot_idx not in assigned_slots:
+                                available_sessions.append((slot_idx, session, len(session.students)))
+                        
+                        if available_sessions:
+                            if len(sessions) > 1:
+                                total_interest = all_wish_counts.get(company_name, 0)
+                                ideal_per_session = total_interest / len(sessions)
+                                
+                                available_sessions.sort(key=lambda x: abs(x[2] - ideal_per_session))
                             
-                        key = (company_name, slot_idx)
-                        if key in self.schedule:
-                            session = self.schedule[key]
-                            if not session.is_full():
+                            slot_idx, session, current_count = available_sessions[0]
+                            
+                            if current_count < session.company.capacity:
                                 session.add_student(student.student_id, student.name)
                                 assigned_slots.add(slot_idx)
-                                break
 
             return True
 

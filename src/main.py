@@ -344,7 +344,7 @@ class RoomManagementApp:
     def setup_preview_tree(self, tree, columns):
         # Configure columns
         tree["columns"] = columns
-        tree["show"] = "headings"  # Hide the first empty column
+        tree["show"] = "headings"
 
         # Set column headings and widths
         for col in columns:
@@ -514,18 +514,21 @@ class RoomManagementApp:
             row = [company.name]
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
                 if slot_idx < company.earliest_slot:
-                    text = ""
+                    text = "---"
                 else:
                     session = self.scheduler.schedule.get((company.name, slot_idx))
                     if session:
                         count = len(session.students)
-                        text = f"Raum: {session.room}"
-                        if count > 0:
-                            text += (
-                                f"\n({count} Schü{'' if count == 1 else 'ler:innen'})"
-                            )
+                        capacity = session.company.capacity
+                        
+                        sessions_for_company = [s for (c, _), s in self.scheduler.schedule.items() if c == company.name]
+                        
+                        if len(sessions_for_company) > 1:
+                            text = f"Raum {session.room}\n({count}/{capacity} TN)"
+                        else:
+                            text = f"Raum {session.room}\n({count}/{capacity} TN)"
                     else:
-                        text = ""
+                        text = "---"
                 row.append(text)
             self.schedule_tree.insert("", tk.END, values=row)
 
@@ -653,20 +656,17 @@ class RoomManagementApp:
         for widget in self.attendance_preview_frame.winfo_children():
             widget.destroy()
 
-        # Sort sessions by company name and time slot
         sorted_sessions = sorted(
             self.scheduler.schedule.items(),
-            key=lambda x: (x[0][0], x[0][1]),  # Sort by company name, then slot
+            key=lambda x: (x[0][0], x[0][1]),
         )
 
-        # Get unique company names and limit to first 6
         company_names = list(
             set(company_name for (company_name, _), _ in sorted_sessions)
         )
         if len(company_names) > 6:
             company_names = company_names[:6]
 
-        # Filter sessions to only include these companies
         sorted_sessions = [
             (key, session)
             for (key, session) in sorted_sessions
@@ -802,8 +802,35 @@ class RoomManagementApp:
             ]
             table_data = [headers]
 
+            # Get all wish counts to determine total interest
+            all_wish_counts = {}
+            for student in self.scheduler.student_preferences:
+                for wish in student.wishes:
+                    if not wish:
+                        continue
+                    try:
+                        wish_num = int(float(str(wish).strip()))
+                        company_name = str(wish_num)
+                        for company in self.scheduler.companies:
+                            if str(wish_num) == str(company.name.strip()):
+                                company_name = company.name.strip()
+                                break
+                    except (ValueError, TypeError):
+                        company_name = str(wish).strip()
+                    all_wish_counts[company_name] = all_wish_counts.get(company_name, 0) + 1
+            
+            # Group sessions by company
+            company_sessions = {}
+            for (company_name, slot_idx), session in self.scheduler.schedule.items():
+                if company_name not in company_sessions:
+                    company_sessions[company_name] = []
+                company_sessions[company_name].append((slot_idx, session))
+            
             for company in self.scheduler.companies:
                 row = [company.name]
+                company_name = company.name.strip()
+                total_interest = all_wish_counts.get(company_name, 0)
+                
                 for slot_idx, _ in enumerate(time_slots):
                     if slot_idx < company.earliest_slot:
                         text = "---"
@@ -811,13 +838,24 @@ class RoomManagementApp:
                         session = self.scheduler.schedule.get((company.name, slot_idx))
                         if session:
                             count = len(session.students)
-                            text = f"Raum {session.room}\n({count} TN)"
+                            capacity = session.company.capacity
+                            
+                            # Check if this company has multiple sessions
+                            sessions_for_company = [s for (c, _), s in self.scheduler.schedule.items() if c == company.name]
+                            
+                            if len(sessions_for_company) > 1:
+                                # For companies with multiple sessions, show the actual count
+                                # We'll rely on the scheduler to distribute students evenly
+                                text = f"Raum {session.room}\n({count}/{capacity} TN)"
+                            else:
+                                # For companies with a single session, show the actual count
+                                text = f"Raum {session.room}\n({count}/{capacity} TN)"
                         else:
                             text = "---"
                     row.append(text)
                 table_data.append(row)
 
-            # Create and style the table
+            # Style the table
             col_widths = [40 * mm] + [30 * mm] * len(time_slots)
             t = Table(table_data, colWidths=col_widths, repeatRows=1)
             t.setStyle(
