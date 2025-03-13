@@ -74,31 +74,43 @@ class SchedulerService:
                 number_to_company[str(idx)] = normalized_name
                 number_to_company[idx] = normalized_name
 
+            all_wish_counts = {}
             first_wish_counts = {}
+            
             for student in self.student_preferences:
-                if student.wishes:
-                    first_wish = str(student.wishes[0]).strip()
+                if not student.wishes:
+                    continue
+                    
+                first_wish = str(student.wishes[0]).strip()
+                try:
+                    wish_num = int(float(first_wish))
+                    company_name = number_to_company.get(wish_num, first_wish)
+                except (ValueError, TypeError):
+                    company_name = first_wish
+                first_wish_counts[company_name] = first_wish_counts.get(company_name, 0) + 1
+                
+                for wish in student.wishes:
+                    if not wish:
+                        continue
                     try:
-                        wish_num = int(float(first_wish))
-                        company_name = number_to_company.get(wish_num, first_wish)
+                        wish_num = int(float(str(wish).strip()))
+                        company_name = number_to_company.get(wish_num, str(wish).strip())
                     except (ValueError, TypeError):
-                        company_name = first_wish
-                    first_wish_counts[company_name] = (
-                        first_wish_counts.get(company_name, 0) + 1
-                    )
+                        company_name = str(wish).strip()
+                    all_wish_counts[company_name] = all_wish_counts.get(company_name, 0) + 1
 
-            sessions_per_company = {}
+            excluded_companies = []
+            filtered_companies = []
             for company in self.companies:
                 normalized_name = company.name.strip()
-                first_wish_count = first_wish_counts.get(normalized_name, 0)
-                if first_wish_count > 0:
-                    min_sessions = -(-first_wish_count // company.capacity)
-                    sessions_per_company[normalized_name] = min(
-                        min_sessions, company.max_sessions
-                    )
+                wish_count = all_wish_counts.get(normalized_name, 0)
+                if wish_count >= company.min_participants:
+                    filtered_companies.append(company)
+                else:
+                    excluded_companies.append(company)
 
             sorted_companies = sorted(
-                self.companies,
+                filtered_companies,
                 key=lambda x: first_wish_counts.get(x.name.strip(), 0),
                 reverse=True,
             )
@@ -106,12 +118,26 @@ class SchedulerService:
             self.schedule.clear()
             company_rooms = {}
             available_rooms = self.rooms.copy()
+            
+            # Remove Aula from available rooms to ensure only Polizei gets it
+            available_rooms = [room for room in available_rooms if room.strip().lower() != "aula"]
 
+            for company in excluded_companies:
+                company_rooms[company.name] = "Hat nicht die Min. Teilnehmer erreicht"
+                session = CompanySession(
+                    company=company,
+                    room="Hat nicht die Min. Teilnehmer erreicht",
+                    time_slot="-",
+                    time_range="-",
+                )
+                self.schedule[(company.name, -1)] = session
+
+            # Handle special company: Only Polizei gets Aula
             polizei_company = next(
                 (
                     company
                     for company in sorted_companies
-                    if company.name.strip() == "Polizei"
+                    if "polizei" in company.name.strip().lower()
                 ),
                 None,
             )
@@ -127,14 +153,37 @@ class SchedulerService:
                             time_range=time_range,
                         )
                         self.schedule[(polizei_company.name, slot_idx)] = session
+            
+            sorted_companies = sorted(
+                [c for c in self.companies if c.name.strip() != "Polizei"],
+                key=lambda x: x.capacity,
+                reverse=True,
+            )
 
             for company in sorted_companies:
                 if not available_rooms:
                     available_rooms = self.rooms.copy()
+                    if "Aula" in available_rooms:
+                        available_rooms.remove("Aula")
+                
                 company_room = available_rooms.pop(0)
                 company_rooms[company.name] = company_room
-
-                for slot_offset in range(len(self.time_slots) - company.earliest_slot):
+                
+                company_name = company.name.strip()
+                total_interest = all_wish_counts.get(company_name, 0)
+                
+                # If interest ≤ 20: 1 session
+                # If 20 < interest ≤ 40: 2 sessions
+                # If 40 < interest ≤ 60: 3 sessions, etc.
+                if total_interest <= 20:
+                    needed_slots = 1
+                else:
+                    # Calculate needed slots based on 20 students per session rule
+                    needed_slots = (total_interest + 19) // 20  # Ceiling division by 20
+                    needed_slots = min(needed_slots, len(self.time_slots) - company.earliest_slot)
+                
+                # Create the required number of sessions
+                for slot_offset in range(needed_slots):
                     slot_idx = company.earliest_slot + slot_offset
                     slot_letter, time_range = self.time_slots[slot_idx]
 
@@ -147,6 +196,21 @@ class SchedulerService:
                         time_range=time_range,
                     )
                     self.schedule[(company.name, slot_idx)] = session
+
+            # Company_sessions for student assignment
+            company_sessions = {}
+            for (company_name, slot_idx), session in self.schedule.items():
+                if company_name not in company_sessions:
+                    company_sessions[company_name] = []
+                company_sessions[company_name].append((slot_idx, session))
+            
+            for company_name in company_sessions:
+                company_sessions[company_name].sort(key=lambda x: x[0])
+                
+                if len(company_sessions[company_name]) > 1:
+                    total_interest = all_wish_counts.get(company_name, 0)
+                    sessions_count = len(company_sessions[company_name])
+                    ideal_per_session = total_interest / sessions_count
 
             for student in self.student_preferences:
                 assigned_slots = set()
@@ -161,17 +225,31 @@ class SchedulerService:
                     except (ValueError, TypeError):
                         company_name = str(wish).strip()
                     
-                    for slot_idx in range(len(self.time_slots)):
-                        if slot_idx in assigned_slots:
-                            continue
+                    if (company_name, -1) in self.schedule:
+                        continue
+                    
+                    # All available sessions for this company
+                    if company_name in company_sessions:
+                        sessions = company_sessions[company_name]
+                        
+                        # Sessions that are not in assigned slots
+                        available_sessions = []
+                        for slot_idx, session in sessions:
+                            if slot_idx not in assigned_slots:
+                                available_sessions.append((slot_idx, session, len(session.students)))
+                        
+                        if available_sessions:
+                            if len(sessions) > 1:
+                                total_interest = all_wish_counts.get(company_name, 0)
+                                ideal_per_session = total_interest / len(sessions)
+                                
+                                available_sessions.sort(key=lambda x: abs(x[2] - ideal_per_session))
                             
-                        key = (company_name, slot_idx)
-                        if key in self.schedule:
-                            session = self.schedule[key]
-                            if not session.is_full():
+                            slot_idx, session, current_count = available_sessions[0]
+                            
+                            if current_count < session.company.capacity:
                                 session.add_student(student.student_id, student.name)
                                 assigned_slots.add(slot_idx)
-                                break
 
             return True
 
