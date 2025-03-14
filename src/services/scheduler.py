@@ -13,7 +13,7 @@ class SchedulerService:
         self.rooms: Optional[List[str]] = None
         # Schedule: maps, company name, slot
         self.schedule: Dict[Tuple[str, int], CompanySession] = {}
-        # list of tuples: slot letter, time range
+        # Time slots
         self.time_slots = [
             ("A", "8:45 – 9:30"),
             ("B", "9:50 – 10:35"),
@@ -52,7 +52,7 @@ class SchedulerService:
         if "Raum" in df.columns:
             self.rooms = [str(row["Raum"]).strip() for _, row in df.iterrows()]
         else:
-            # Use the first column (index 0)
+            # Use the first column
             self.rooms = [str(row[0]).strip() for _, row in df.iterrows()]
         
         return True
@@ -267,7 +267,7 @@ class SchedulerService:
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib.units import mm
             from reportlab.platypus import (
-                SimpleDocTemplate,
+                PDFTemplate,
                 Table,
                 TableStyle,
                 Paragraph,
@@ -321,7 +321,7 @@ class SchedulerService:
                     }
                 )
 
-            doc = SimpleDocTemplate(
+            doc = PDFTemplate(
                 "student_schedules.pdf",
                 pagesize=A4,
                 rightMargin=10 * mm,
@@ -413,13 +413,13 @@ class SchedulerService:
             from reportlab.lib.styles import getSampleStyleSheet
             from reportlab.lib.units import mm
             from reportlab.platypus import (
-                SimpleDocTemplate,
+                PDFTemplate,
                 Table,
                 TableStyle,
                 Paragraph,
             )
 
-            doc = SimpleDocTemplate(
+            doc = PDFTemplate(
                 "attendance_lists.pdf",
                 pagesize=A4,
                 rightMargin=10 * mm,
@@ -448,7 +448,7 @@ class SchedulerService:
                     if key[0] in company_names
                 ]
 
-            for (company_name, slot_idx), session in sorted_sessions:
+            for (company_name), session in sorted_sessions:
                 story.append(
                     Paragraph(
                         f"<b>{company_name}</b>",
@@ -465,16 +465,25 @@ class SchedulerService:
                 )
 
                 data = [["Nr.", "Name", "Klasse", "Unterschrift"]]
-                for i, student in enumerate(
-                    sorted(session.students, key=lambda x: x["name"]), 1
-                ):
-                    class_name = student["id"].split("_")[0]
-                    data.append([str(i), student["name"], class_name, ""])
+                
+                # Check if this company has reached its minimum participants
+                if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:
+                    # If minimum participants not reached, just show a message
+                    data.append(["", "Mindest Anzahl nicht erreicht", "", ""])
+                else:
+                    # Add student rows
+                    for i, student in enumerate(
+                        sorted(session.students, key=lambda x: x["name"]), 1
+                    ):
+                        class_name = student["id"].split("_")[0]
+                        data.append([str(i), student["name"], class_name, ""])
 
-                empty_rows = [["", "", "", ""] for _ in range(5)]
-                for i, empty_row in enumerate(empty_rows, len(data)):
-                    empty_row[0] = str(i)
-                data.extend(empty_rows)
+                    # Check if there are no students
+                    current_students = len(session.students)
+                    if current_students == 0:
+                        # If no students, add a message row
+                        data.append(["", "Keine Teilnehmer", "", ""])
+                    # No empty rows needed
 
                 t = Table(
                     data,

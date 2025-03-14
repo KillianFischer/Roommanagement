@@ -708,46 +708,71 @@ class RoomManagementApp:
             ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
             row += 1
 
-            # Student rows - sort by name
-            for i, student in enumerate(sorted(session.students, key=lambda x: x["name"]), 1):
-                class_name = student["id"].split("_")[0]
+            # Check if this company has reached its minimum participants
+            if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:
+                # If minimum participants not reached, just show a message
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text=str(i),
+                    text="",
                 ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text=student["name"],
+                    text="Mindest Anzahl nicht erreicht",
+                    font=("Helvetica", 10, "bold"),
                 ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text=class_name,
+                    text="",
                 ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="________________",
+                    text="",
                 ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
                 row += 1
+            else:
+                # Student rows - sort by name
+                for i, student in enumerate(sorted(session.students, key=lambda x: x["name"]), 1):
+                    class_name = student["id"].split("_")[0]
+                    ttk.Label(
+                        self.attendance_preview_frame,
+                        text=str(i),
+                    ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
+                    ttk.Label(
+                        self.attendance_preview_frame,
+                        text=student["name"],
+                    ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
+                    ttk.Label(
+                        self.attendance_preview_frame,
+                        text=class_name,
+                    ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
+                    ttk.Label(
+                        self.attendance_preview_frame,
+                        text="________________",
+                    ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
+                    row += 1
 
-            # Add empty rows for additional students
-            for i in range(5):
-                ttk.Label(
-                    self.attendance_preview_frame,
-                    text=str(len(session.students) + i + 1),
-                ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
-                ttk.Label(
-                    self.attendance_preview_frame,
-                    text="",
-                ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
-                ttk.Label(
-                    self.attendance_preview_frame,
-                    text="",
-                ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
-                ttk.Label(
-                    self.attendance_preview_frame,
-                    text="________________",
-                ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
-                row += 1
+                # Check if there are no students
+                current_students = len(session.students)
+                if current_students == 0:
+                    # If no students, add a message row
+                    ttk.Label(
+                        self.attendance_preview_frame,
+                        text="",
+                    ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
+                    ttk.Label(
+                        self.attendance_preview_frame,
+                        text="Keine Teilnehmer",
+                        font=("Helvetica", 10, "bold"),
+                    ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
+                    ttk.Label(
+                        self.attendance_preview_frame,
+                        text="",
+                    ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
+                    ttk.Label(
+                        self.attendance_preview_frame,
+                        text="",
+                    ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
+                    row += 1
 
         # Update canvas scroll region
         self.attendance_preview_frame.update_idletasks()

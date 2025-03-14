@@ -63,5 +63,5 @@ class CompanySession:
         return True
 
     def is_full(self) -> bool:
-        # Standard check - never exceed the room's physical capacity
+        # Never exceed the room's physical capacity
         return len(self.students) >= self.company.capacity
