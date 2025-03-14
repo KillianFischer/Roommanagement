@@ -345,7 +345,6 @@ class RoomManagementApp:
         tree["columns"] = columns
         tree["show"] = "headings"
 
-        # Column headings and widths
         for col in columns:
             tree.heading(col, text=col)
             tree.column(col, width=100)
@@ -372,7 +371,6 @@ class RoomManagementApp:
         if self.dev_mode:
             filename = os.getenv(env_key)
             if filename:
-                # Import folder
                 filepath = os.path.join(self.import_folder, filename)
                 if os.path.exists(filepath):
                     return filepath
@@ -421,7 +419,7 @@ class RoomManagementApp:
                 
                 # Handle different column names for minimum participants
                 if "Min." in df.columns and "Min. Teilnehmer" not in df.columns:
-                    # Rename "Min." to "Min. Teilnehmer" for consistency
+                    # Rename "Min." to "Min. Teilnehmer"
                     df = df.rename(columns={"Min.": "Min. Teilnehmer"})
                 
                 if self.scheduler.load_companies(df):
@@ -467,7 +465,7 @@ class RoomManagementApp:
     def generate_schedule(self):
         if not self.scheduler.is_data_loaded():
             messagebox.showerror(
-                "Fehler", "Bitte alle erforderlichen Daten importieren!"
+                "Fehler", "Bitte alle drei Excel importieren!"
             )
             return
         if self.scheduler.generate_schedule():
@@ -476,7 +474,7 @@ class RoomManagementApp:
         else:
             messagebox.showerror(
                 "Fehler",
-                "Zeitplan konnte nicht generiert werden. Bitte prüfen Sie Ihre Daten und Zeitslots.",
+                "Zeitplan konnte nicht generiert werden. Bitte prüfen Sie die Daten in den Excel Dateien.",
             )
 
     def update_schedule_display(self):
