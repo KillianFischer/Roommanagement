@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from typing import List
 import pandas as pd
 
-
-# not working yet
 @dataclass
 class Company:
     name: str
@@ -18,17 +16,15 @@ class Company:
         for _, row in df.iterrows():
             # strip extra spaces
             comp_name = str(row["Unternehmen"]).strip()
-            fachrichtung = row["Fachrichtung"]
+            fachrichtung = row["Fachrichtung"] # TODO: Add fachrichtung
             max_teilnehmer = int(row["Max. Teilnehmer"])
             
-            # Handle both "Min. Teilnehmer" and "Min." column names
+            # Min. Teilnehmer column name
             if "Min. Teilnehmer" in df.columns:
                 min_teilnehmer = int(row["Min. Teilnehmer"])
-            elif "Min." in df.columns:
-                min_teilnehmer = int(row["Min."])
             else:
-                # Default to 1 if no minimum column is found
-                min_teilnehmer = 1
+                # Default to 0 if no minimum column is found
+                min_teilnehmer = 0
                 
             if pd.isna(row["Frühester Zeitpunkt"]):
                 earliest = 0

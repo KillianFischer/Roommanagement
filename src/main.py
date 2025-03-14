@@ -84,7 +84,7 @@ class RoomManagementApp:
         )
         self.preferences_status.grid(row=1, column=1, pady=2, sticky="w")
 
-        # frame for preview with scrollbar
+        # frame for preview
         preview_frame = ttk.Frame(section_frame)
         preview_frame.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky="nsew")
 
@@ -104,7 +104,7 @@ class RoomManagementApp:
         preview_frame.columnconfigure(0, weight=1)
         section_frame.columnconfigure(1, weight=1)
 
-        # Company list section
+        # Company list
         section_frame = ttk.Frame(self.import_sections)
         section_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 20))
 
@@ -125,7 +125,7 @@ class RoomManagementApp:
         )
         self.companies_status.grid(row=1, column=1, pady=2, sticky="w")
 
-        # frame for preview with scrollbar
+        # frame for preview
         preview_frame = ttk.Frame(section_frame)
         preview_frame.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky="nsew")
 
@@ -143,7 +143,7 @@ class RoomManagementApp:
         preview_frame.columnconfigure(0, weight=1)
         section_frame.columnconfigure(1, weight=1)
 
-        # Room list section
+        # Room list
         section_frame = ttk.Frame(self.import_sections)
         section_frame.grid(row=2, column=0, sticky="nsew")
 
@@ -164,7 +164,7 @@ class RoomManagementApp:
         )
         self.rooms_status.grid(row=1, column=1, pady=2, sticky="w")
 
-        # frame for preview with scrollbar
+        # frame for preview
         preview_frame = ttk.Frame(section_frame)
         preview_frame.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky="nsew")
 
@@ -342,23 +342,21 @@ class RoomManagementApp:
         self.main_frame.rowconfigure(0, weight=1)
 
     def setup_preview_tree(self, tree, columns):
-        # Configure columns
         tree["columns"] = columns
         tree["show"] = "headings"
 
-        # Set column headings and widths
+        # Column headings and widths
         for col in columns:
             tree.heading(col, text=col)
             tree.column(col, width=100)
 
-        # Configure row tags for alternating row colors
         tree.tag_configure("oddrow")
         tree.tag_configure("evenrow")
 
     def update_preview(self, tree, df, columns):
         for item in tree.get_children():
             tree.delete(item)
-        for idx, row in df.head(6).iterrows():  # Show more rows
+        for idx, row in df.head(6).iterrows():
             values = [
                 str(row[col]) if col in row and pd.notna(row[col]) else ""
                 for col in columns
@@ -374,7 +372,7 @@ class RoomManagementApp:
         if self.dev_mode:
             filename = os.getenv(env_key)
             if filename:
-                # Use the import_folder path which now points to the correct location
+                # Import folder
                 filepath = os.path.join(self.import_folder, filename)
                 if os.path.exists(filepath):
                     return filepath
