@@ -520,9 +520,9 @@ class RoomManagementApp:
                         sessions_for_company = [s for (c, _), s in self.scheduler.schedule.items() if c == company.name]
                         
                         if len(sessions_for_company) > 1:
-                            text = f"Raum {session.room}\n({count}/{capacity} TN)"
+                            text = f"Raum {session.room}"
                         else:
-                            text = f"Raum {session.room}\n({count}/{capacity} TN)"
+                            text = f"Raum {session.room}"
                     else:
                         text = "---"
                 row.append(text)
@@ -867,10 +867,10 @@ class RoomManagementApp:
                             if len(sessions_for_company) > 1:
                                 # For companies with multiple sessions, show the actual count
                                 # We'll rely on the scheduler to distribute students evenly
-                                text = f"Raum {session.room}\n({count}/{capacity} TN)"
+                                text = f"Raum {session.room}"
                             else:
                                 # For companies with a single session, show the actual count
-                                text = f"Raum {session.room}\n({count}/{capacity} TN)"
+                                text = f"Raum {session.room}"
                         else:
                             text = "---"
                     row.append(text)
