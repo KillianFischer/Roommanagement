@@ -267,7 +267,7 @@ class SchedulerService:
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib.units import mm
             from reportlab.platypus import (
-                PDFTemplate,
+                SimpleDocTemplate,
                 Table,
                 TableStyle,
                 Paragraph,
@@ -321,7 +321,7 @@ class SchedulerService:
                     }
                 )
 
-            doc = PDFTemplate(
+            doc = SimpleDocTemplate(
                 "student_schedules.pdf",
                 pagesize=A4,
                 rightMargin=10 * mm,
@@ -413,14 +413,14 @@ class SchedulerService:
             from reportlab.lib.styles import getSampleStyleSheet
             from reportlab.lib.units import mm
             from reportlab.platypus import (
-                PDFTemplate,
+                SimpleDocTemplate,
                 Table,
                 TableStyle,
                 Paragraph,
             )
 
-            doc = PDFTemplate(
-                "attendance_lists.pdf",
+            doc = SimpleDocTemplate(
+                "attendance_list.pdf",
                 pagesize=A4,
                 rightMargin=10 * mm,
                 leftMargin=10 * mm,
@@ -464,7 +464,7 @@ class SchedulerService:
                     )
                 )
 
-                data = [["Nr.", "Name", "Klasse", "Unterschrift"]]
+                data = [["Nr.", "Name", "Klasse", "Anwesend"]]
                 
                 # Check if this company has reached its minimum participants
                 if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:

@@ -704,7 +704,7 @@ class RoomManagementApp:
             ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
             ttk.Label(
                 self.attendance_preview_frame,
-                text="Unterschrift",
+                text="Anwesend",
             ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
             row += 1
 
