@@ -1,14 +1,31 @@
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List, Dict, Optional
 import pandas as pd
 
-
-# not working yet
 @dataclass
 class StudentPreference:
     student_id: str
     name: str
     wishes: List[str]
+    assigned_session: Optional[str] = None
+    fulfillment_score: Optional[float] = None
+
+    def calculate_fulfillment_score(self, assigned_session: str) -> float:
+        self.assigned_session = assigned_session
+        
+        if not assigned_session:
+            self.fulfillment_score = 0.0
+            return 0.0
+            
+        weights = [6, 5, 4, 3, 2, 1]
+        if assigned_session in self.wishes:
+            position = self.wishes.index(assigned_session)
+            if position < len(weights):
+                self.fulfillment_score = float(weights[position])
+                return self.fulfillment_score
+        
+        self.fulfillment_score = 0.0
+        return 0.0
 
     @classmethod
     def from_dataframe(
@@ -16,44 +33,44 @@ class StudentPreference:
     ) -> List["StudentPreference"]:
         preferences = []
         for idx, row in df.iterrows():
-            klasse = str(row["Klasse"]).strip()
-            name = str(row["Name"]).strip()
-            vorname = str(row["Vorname"]).strip()
-            student_id = f"{klasse}_{idx + 1}"
-            full_name = f"{name}, {vorname}"
-            wishes = []
-            for i in range(1, 7):
-                col1 = f"Wahl {i}"
-                col2 = f"Wahl{i}"
-                wish = None
-                if col1 in df.columns:
-                    wish = row.get(col1)
-                elif col2 in df.columns:
-                    wish = row.get(col2)
-                if pd.notna(wish):
-                    try:
-                        wish_num = int(float(str(wish).strip()))
-                        if company_mapping and wish_num in company_mapping:
-                            wishes.append(company_mapping[wish_num])
-                        else:
-                            wishes.append(str(wish_num))
-                    except ValueError:
-                        wishes.append(str(wish).strip())
-            preferences.append(
-                cls(student_id=student_id, name=full_name, wishes=wishes)
-            )
+            student_id, full_name = cls._extract_student_info(row, idx)
+            wishes = cls._extract_wishes(row, df.columns, company_mapping)
+            preferences.append(cls(student_id=student_id, name=full_name, wishes=wishes))
         return preferences
-
-    def get_satisfaction_score(
-        self, realized_wishes: List[bool], max_wishes: int = 6
-    ) -> float:
-        total_points = 0
-        max_points = 21  # Sum of 6+5+4+3+2+1
-        
-        # Calculate points based on realized wishes
-        for i, wish in enumerate(realized_wishes):
-            if wish and i < max_wishes:
-                # 1st wish = 6 points, 2nd wish = 5 points, etc.
-                total_points += (max_wishes - i)
+    
+    @staticmethod
+    def _extract_student_info(row, idx):
+        klasse = str(row["Klasse"]).strip()
+        name = str(row["Name"]).strip()
+        vorname = str(row["Vorname"]).strip()
+        student_id = f"{klasse}_{idx + 1}"
+        full_name = f"{name}, {vorname}"
+        return student_id, full_name
+    
+    @staticmethod
+    def _extract_wishes(row, columns, company_mapping):
+        wishes = []
+        for i in range(1, 7):
+            col1 = f"Wahl {i}"
+            col2 = f"Wahl{i}"
+            wish = None
+            
+            if col1 in columns:
+                wish = row.get(col1)
+            elif col2 in columns:
+                wish = row.get(col2)
                 
-        return (total_points / max_points) * 100
+            if pd.notna(wish):
+                wishes.append(StudentPreference._format_wish(wish, company_mapping))
+        return wishes
+    
+    @staticmethod
+    def _format_wish(wish, company_mapping):
+        try:
+            wish_num = int(float(str(wish).strip()))
+            if company_mapping and wish_num in company_mapping:
+                return company_mapping[wish_num]
+            return str(wish_num)
+        except ValueError:
+            return str(wish).strip()
+

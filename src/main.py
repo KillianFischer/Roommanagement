@@ -1,21 +1,21 @@
-import os
-from dotenv import load_dotenv
 import tkinter as tk
+import os
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
+import configparser
+import sys
 
-from services.scheduler import SchedulerService
+from services.scheduler import Scheduler
+from ui import ErrorDisplay
 
-load_dotenv()
-
-
+# TODO: Maybe separate class into several files to improve maintainability
 class RoomManagementApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Room Management")
+        self.root.title("Raumverwaltung für Berufsorientierungstag")
         self.root.geometry("1200x800")
 
-        self.scheduler = SchedulerService()
+        self.scheduler = Scheduler(error_handler=self.show_error)
 
         self.dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +26,9 @@ class RoomManagementApp:
 
         self.main_frame = ttk.Frame(self.root, padding="10")
         self.main_frame.grid(row=0, column=0, sticky="nsew")
+
+        # Error display
+        self.error_display = ErrorDisplay(self.main_frame, row=1, column=0)
 
         self.notebook = ttk.Notebook(self.main_frame)
         self.notebook.grid(row=0, column=0, sticky="nsew")
@@ -80,7 +83,7 @@ class RoomManagementApp:
 
         self.preferences_status = ttk.Label(
             section_frame,
-            text="No file imported",
+            text="Noch keine Excel Datei importiert",
         )
         self.preferences_status.grid(row=1, column=1, pady=2, sticky="w")
 
@@ -463,19 +466,15 @@ class RoomManagementApp:
                 self.rooms_status.config(text=f"Error: {str(e)}", foreground="red")
 
     def generate_schedule(self):
+        self.clear_error()
         if not self.scheduler.is_data_loaded():
-            messagebox.showerror(
-                "Fehler", "Bitte alle drei Excel importieren!"
-            )
+            self.show_error("Bitte laden Sie zuerst alle Daten (Schülerwünsche, Unternehmen und Räume).")
             return
+
         if self.scheduler.generate_schedule():
             self.update_schedule_display()
-            messagebox.showinfo("Erfolg", "Zeitplan erfolgreich generiert!")
         else:
-            messagebox.showerror(
-                "Fehler",
-                "Zeitplan konnte nicht generiert werden. Bitte prüfen Sie die Daten in den Excel Dateien.",
-            )
+            self.show_error("Es gab ein Problem bei der Generierung des Zeitplans. Bitte überprüfen Sie die Daten.")
 
     def update_schedule_display(self):
         for item in self.schedule_tree.get_children():
@@ -488,7 +487,10 @@ class RoomManagementApp:
             ("D", "11:40 – 12:25"),
             ("E", "12:25 – 13:10"),
         ]
-        self.scheduler.time_slots = time_slots
+        
+        # Remove overall erfüllungsscore display
+        if hasattr(self, 'overall_score_label'):
+            self.overall_score_label.destroy()
 
         columns = ["Company"] + [slot for slot, _ in time_slots]
         self.schedule_tree["columns"] = columns
@@ -496,28 +498,28 @@ class RoomManagementApp:
         self.schedule_tree.column("Company", anchor=tk.W, width=250)
         self.schedule_tree.heading("Company", text="Unternehmen", anchor=tk.W)
 
-        for col in columns:
-            self.schedule_tree.column(col, anchor=tk.W, width=150)
-            if col == "Company":
-                self.schedule_tree.heading(col, text="Unternehmen", anchor=tk.W)
-            else:
-                time_range = dict(time_slots).get(col, "")
-                self.schedule_tree.heading(
-                    col, text=f"{col} ({time_range})", anchor=tk.W
-                )
+        for i, (slot, time_range) in enumerate(time_slots):
+            self.schedule_tree.column(slot, anchor=tk.CENTER, width=150)
+            self.schedule_tree.heading(
+                slot, text=f"{slot} ({time_range})", anchor=tk.CENTER
+            )
+            
+        # Get company data from scheduler
+        schedule = self.scheduler.get_schedule()
+        companies = [c for c in self.scheduler.core.companies if (c.name, -1) not in schedule]
 
-        for company in self.scheduler.companies:
+        for company in companies:
             row = [company.name]
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
-                if slot_idx < company.earliest_slot:
+                if slot_idx < company.earliest_slot or slot_idx in company.blocked_slots:
                     text = "---"
                 else:
-                    session = self.scheduler.schedule.get((company.name, slot_idx))
+                    session = schedule.get((company.name, slot_idx))
                     if session:
                         count = len(session.students)
                         capacity = session.company.capacity
                         
-                        sessions_for_company = [s for (c, _), s in self.scheduler.schedule.items() if c == company.name]
+                        sessions_for_company = [s for (c, _), s in schedule.items() if c == company.name]
                         
                         if len(sessions_for_company) > 1:
                             text = f"Raum {session.room}"
@@ -529,93 +531,132 @@ class RoomManagementApp:
             self.schedule_tree.insert("", tk.END, values=row)
 
     def export_student_schedules(self):
+        self.clear_error()
         if not self.scheduler.get_schedule():
-            messagebox.showerror("Fehler", "Bitte erst den Zeitplan generieren!")
+            self.show_error("Bitte erst den Zeitplan generieren!")
             return
-        self.scheduler.export_student_schedules()
+        
+        filepath = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
+        if filepath:
+            if self.scheduler.export_student_schedules_pdf(filepath):
+                self.clear_error()
 
     def export_attendance_lists(self):
+        self.clear_error()
         if not self.scheduler.get_schedule():
-            messagebox.showerror("Fehler", "Bitte erst den Zeitplan generieren!")
+            self.show_error("Bitte erst den Zeitplan generieren!")
             return
-        self.scheduler.export_attendance_lists(preview_mode=False)
+        
+        filepath = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
+        if filepath:
+            if self.scheduler.export_attendance_lists_pdf(filepath):
+                self.clear_error()
 
     def preview_student_schedules(self):
+        self.clear_error()
         if not self.scheduler.get_schedule():
-            messagebox.showerror("Fehler", "Bitte erst den Zeitplan generieren!")
+            self.show_error("Bitte erst den Zeitplan generieren!")
             return
 
         for widget in self.student_preview_frame.winfo_children():
             widget.destroy()
 
-        number_to_company = {}
-        for idx, company in enumerate(self.scheduler.companies, 1):
-            normalized_name = company.name.strip()
-            number_to_company[str(idx)] = normalized_name
-            number_to_company[idx] = normalized_name
+        # Display the overall erfüllungsscore at the top
+        overall_score = self.scheduler.calculate_overall_fulfillment_score()
+        ttk.Label(
+            self.student_preview_frame,
+            text=f"Gesamter Erfüllungsscore: {overall_score:.1f}%",
+            font=("Helvetica", 12, "bold")
+        ).grid(row=0, column=0, columnspan=4, pady=(5, 20), sticky="w")
 
+        # Get student schedules by class
         class_schedules = {}
-        for student in self.scheduler.student_preferences:
-            class_name = student.student_id.split("_")[0]
-            if class_name not in class_schedules:
-                class_schedules[class_name] = []
-
-            student_schedule = []
-            realized_wishes = [False] * len(student.wishes)
-            
-            for wish_idx, wish in enumerate(student.wishes):
-                if not wish:
-                    continue
-                    
-                try:
-                    wish_num = int(float(str(wish).strip()))
-                    company_name = number_to_company.get(wish_num, str(wish).strip())
-                except (ValueError, TypeError):
-                    company_name = str(wish).strip()
+        
+        # Get a lookup from company name to numeric ID to better handle wishes
+        company_to_number = {}
+        for idx, company in enumerate(self.scheduler.core.companies, 1):
+            company_to_number[company.name.strip()] = str(idx)
+        
+        for student_name, appointments in self.scheduler.get_student_schedules().items():
+            # Extract class name from student ID
+            student = next((s for s in self.scheduler.student_preferences if s.name == student_name), None)
+            if student:
+                class_name = student.student_id.split("_")[0]
+                if class_name not in class_schedules:
+                    class_schedules[class_name] = []
                 
-                for slot_idx, (slot_letter, time_range) in enumerate(self.scheduler.time_slots):
-                    key = (company_name, slot_idx)
-                    if key in self.scheduler.schedule:
-                        session = self.scheduler.schedule[key]
-                        if any(s["id"] == student.student_id for s in session.students):
-                            realized_wishes[wish_idx] = True
-                            student_schedule.append({
-                                "time": f"{slot_letter} ({time_range})",
-                                "company": company_name,
-                                "room": session.room,
-                                "wish_number": wish_idx + 1,
-                            })
+                # Prepare schedule data
+                schedule_data = []
+                for slot_letter, time_range, company, room in appointments:
+                    # Find which wish number this is
+                    wish_number = None
+                    
+                    # Handle both direct company name matches and numeric matches
+                    for i, wish in enumerate(student.wishes):
+                        if not wish:
+                            continue
+                            
+                        normalized_wish = str(wish).strip()
+                        
+                        # Check for direct company name match
+                        if normalized_wish == company:
+                            wish_number = i + 1
                             break
+                            
+                        # Check for company number match
+                        try:
+                            wish_num = int(float(normalized_wish))
+                            company_for_number = None
+                            for c in self.scheduler.core.companies:
+                                if str(wish_num) == company_to_number.get(c.name.strip()):
+                                    company_for_number = c.name.strip()
+                                    break
+                            
+                            if company_for_number == company:
+                                wish_number = i + 1
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    if wish_number is None:
+                        wish_number = "-"
+                    
+                    schedule_data.append({
+                        "time": f"{slot_letter} ({time_range})",
+                        "company": company,
+                        "room": room,
+                        "wish_number": wish_number
+                    })
+                
+                class_schedules[class_name].append({
+                    "name": student_name,
+                    "schedule": schedule_data
+                })
 
-            satisfaction_score = student.get_satisfaction_score(realized_wishes)
-            class_schedules[class_name].append(
-                {
-                    "name": student.name,
-                    "schedule": sorted(student_schedule, key=lambda x: x["time"]),
-                    "score": satisfaction_score,
-                }
-            )
-
-        row = 0
+        row = 1  # Start from row 1 since row 0 is used for overall score
 
         for class_name, students in sorted(class_schedules.items()):
             ttk.Label(
                 self.student_preview_frame,
                 text=f"Klasse {class_name}",
+                font=("Helvetica", 11, "bold")
             ).grid(row=row, column=0, columnspan=4, pady=(20, 10), sticky="w")
             row += 1
 
             for student in students:
+                # Display student name
                 ttk.Label(
                     self.student_preview_frame,
-                    text=f"{student['name']} - Erfüllungsscore: {student['score']:.1f}%",
+                    text=f"{student['name']}",
+                    font=("Helvetica", 10, "bold")
                 ).grid(row=row, column=0, columnspan=4, pady=(10, 5), sticky="w")
                 row += 1
 
-                for col, header in enumerate(["Zeit", "Unternehmen", "Raum", "Wunsch"]):
+                for col, header in enumerate(["Zeit", "Unternehmen", "Raum", "Wunsch Nr."]):
                     ttk.Label(
                         self.student_preview_frame,
                         text=header,
+                        font=("Helvetica", 9, "bold")
                     ).grid(row=row, column=col, padx=5, pady=2, sticky="w")
                 row += 1
 
@@ -632,136 +673,115 @@ class RoomManagementApp:
                         self.student_preview_frame,
                         text=appointment["room"],
                     ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
-                    ttk.Label(
+                    
+                    # Show wish number with color coding
+                    wish_label = ttk.Label(
                         self.student_preview_frame,
                         text=str(appointment["wish_number"]),
-                    ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
+                    )
+                    
+                    # Color the wish numbers
+                    if appointment["wish_number"] == 1:
+                        wish_label.configure(foreground="green")
+                    elif appointment["wish_number"] == 2:
+                        wish_label.configure(foreground="darkgreen")
+                    elif appointment["wish_number"] == 3:
+                        wish_label.configure(foreground="forestgreen") 
+                    elif appointment["wish_number"] in [4, 5, 6]:
+                        wish_label.configure(foreground="orange")
+                    
+                    wish_label.grid(row=row, column=3, padx=5, pady=2, sticky="w")
                     row += 1
 
-        self.student_preview_frame.update_idletasks()
-        self.student_preview_canvas.configure(
-            scrollregion=self.student_preview_canvas.bbox("all")
-        )
+            self.student_preview_frame.update_idletasks()
+            self.student_preview_canvas.configure(
+                scrollregion=self.student_preview_canvas.bbox("all")
+            )
 
     def preview_attendance_lists(self):
+        self.clear_error()
         if not self.scheduler.get_schedule():
-            messagebox.showerror("Fehler", "Bitte erst den Zeitplan generieren!")
+            self.show_error("Bitte erst den Zeitplan generieren!")
             return
 
         # Clear previous preview
         for widget in self.attendance_preview_frame.winfo_children():
             widget.destroy()
 
-        sorted_sessions = sorted(
-            self.scheduler.schedule.items(),
-            key=lambda x: (x[0][0], x[0][1]),
-        )
+        # Create a temporary PDF for preview
+        temp_filepath = "temp_attendance_preview.pdf"
+        if self.scheduler.export_attendance_lists_pdf(temp_filepath, preview_mode=True):
+            # Show the preview directly in the UI
+            sorted_sessions = sorted(
+                self.scheduler.get_schedule().items(),
+                key=lambda x: (x[0][0], x[0][1]),
+            )
 
-        company_names = list(
-            set(company_name for (company_name, _), _ in sorted_sessions)
-        )
-        if len(company_names) > 6:
-            company_names = company_names[:6]
+            company_names = list(
+                set(company_name for (company_name, _), _ in sorted_sessions)
+            )
+            if len(company_names) > 6:
+                company_names = company_names[:6]
 
-        sorted_sessions = [
-            (key, session)
-            for (key, session) in sorted_sessions
-            if key[0] in company_names
-        ]
+            sorted_sessions = [
+                (key, session)
+                for (key, session) in sorted_sessions
+                if key[0] in company_names
+            ]
 
-        row = 0
+            row = 0
 
-        for (company_name, slot_idx), session in sorted_sessions:
-            # Get time slot information
-            slot_letter, time_range = self.scheduler.time_slots[slot_idx]
-            
-            # Company header
-            ttk.Label(
-                self.attendance_preview_frame,
-                text=f"{company_name}",
-            ).grid(row=row, column=0, columnspan=4, pady=(20, 5), sticky="w")
-            row += 1
-
-            # Time slot and room information
-            ttk.Label(
-                self.attendance_preview_frame,
-                text=f"Zeitfenster: {slot_letter} ({time_range}) - Raum: {session.room}",
-            ).grid(row=row, column=0, columnspan=4, pady=(0, 5), sticky="w")
-            row += 1
-
-            # Attendance list headers
-            ttk.Label(
-                self.attendance_preview_frame,
-                text="Nr.",
-            ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
-            ttk.Label(
-                self.attendance_preview_frame,
-                text="Name",
-            ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
-            ttk.Label(
-                self.attendance_preview_frame,
-                text="Klasse",
-            ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
-            ttk.Label(
-                self.attendance_preview_frame,
-                text="Anwesend",
-            ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
-            row += 1
-
-            # Check if this company has reached its minimum participants
-            if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:
-                # If minimum participants not reached, just show a message
+            for (company_name, slot_idx), session in sorted_sessions:
+                # Skip excluded companies
+                if slot_idx == -1:
+                    continue
+                    
+                # Get time slot information
+                slot_letter, time_range = self.scheduler.time_slots[slot_idx]
+                
+                # Company header
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="",
+                    text=f"{company_name}",
+                ).grid(row=row, column=0, columnspan=4, pady=(20, 5), sticky="w")
+                row += 1
+
+                # Time slot and room information
+                ttk.Label(
+                    self.attendance_preview_frame,
+                    text=f"Zeitfenster: {slot_letter} ({time_range}) - Raum: {session.room}",
+                ).grid(row=row, column=0, columnspan=4, pady=(0, 5), sticky="w")
+                row += 1
+
+                # Attendance list headers
+                ttk.Label(
+                    self.attendance_preview_frame,
+                    text="Nr.",
                 ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="Mindest Anzahl nicht erreicht",
-                    font=("Helvetica", 10, "bold"),
+                    text="Name",
                 ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="",
+                    text="Klasse",
                 ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
                 ttk.Label(
                     self.attendance_preview_frame,
-                    text="",
+                    text="Anwesend",
                 ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
                 row += 1
-            else:
-                # Student rows - sort by name
-                for i, student in enumerate(sorted(session.students, key=lambda x: x["name"]), 1):
-                    class_name = student["id"].split("_")[0]
-                    ttk.Label(
-                        self.attendance_preview_frame,
-                        text=str(i),
-                    ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
-                    ttk.Label(
-                        self.attendance_preview_frame,
-                        text=student["name"],
-                    ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
-                    ttk.Label(
-                        self.attendance_preview_frame,
-                        text=class_name,
-                    ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
-                    ttk.Label(
-                        self.attendance_preview_frame,
-                        text="________________",
-                    ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
-                    row += 1
 
-                # Check if there are no students
-                current_students = len(session.students)
-                if current_students == 0:
-                    # If no students, add a message row
+                # Check if this company has reached its minimum participants
+                if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:
+                    # If minimum participants not reached, just show a message
                     ttk.Label(
                         self.attendance_preview_frame,
                         text="",
                     ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
                     ttk.Label(
                         self.attendance_preview_frame,
-                        text="Keine Teilnehmer",
+                        text="Mindest Anzahl nicht erreicht",
                         font=("Helvetica", 10, "bold"),
                     ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
                     ttk.Label(
@@ -773,16 +793,68 @@ class RoomManagementApp:
                         text="",
                     ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
                     row += 1
+                else:
+                    # Student rows - sort by name
+                    for i, student in enumerate(sorted(session.students, key=lambda x: x["name"]), 1):
+                        class_name = student["id"].split("_")[0]
+                        ttk.Label(
+                            self.attendance_preview_frame,
+                            text=str(i),
+                        ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
+                        ttk.Label(
+                            self.attendance_preview_frame,
+                            text=student["name"],
+                        ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
+                        ttk.Label(
+                            self.attendance_preview_frame,
+                            text=class_name,
+                        ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
+                        ttk.Label(
+                            self.attendance_preview_frame,
+                            text="________________",
+                        ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
+                        row += 1
 
-        # Update canvas scroll region
-        self.attendance_preview_frame.update_idletasks()
-        self.attendance_preview_canvas.configure(
-            scrollregion=self.attendance_preview_canvas.bbox("all")
-        )
+                    # Check if there are no students
+                    current_students = len(session.students)
+                    if current_students == 0:
+                        # If no students, add a message row
+                        ttk.Label(
+                            self.attendance_preview_frame,
+                            text="",
+                        ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
+                        ttk.Label(
+                            self.attendance_preview_frame,
+                            text="Keine Teilnehmer",
+                            font=("Helvetica", 10, "bold"),
+                        ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
+                        ttk.Label(
+                            self.attendance_preview_frame,
+                            text="",
+                        ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
+                        ttk.Label(
+                            self.attendance_preview_frame,
+                            text="",
+                        ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
+                        row += 1
+
+            # Update canvas scroll region
+            self.attendance_preview_frame.update_idletasks()
+            self.attendance_preview_canvas.configure(
+                scrollregion=self.attendance_preview_canvas.bbox("all")
+            )
+            
+            # Try to clean up the temporary file
+            try:
+                if os.path.exists(temp_filepath):
+                    os.remove(temp_filepath)
+            except:
+                pass
 
     def export_schedule(self):
+        self.clear_error()
         if not self.scheduler.get_schedule():
-            messagebox.showerror("Fehler", "Bitte erst den Zeitplan generieren!")
+            self.show_error("Bitte erst den Zeitplan generieren!")
             return
 
         try:
@@ -797,9 +869,14 @@ class RoomManagementApp:
                 Paragraph,
             )
 
+            # Get file path from user
+            filepath = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
+            if not filepath:
+                return
+
             # Create PDF
             doc = SimpleDocTemplate(
-                "schedule.pdf",
+                filepath,
                 pagesize=landscape(A4),
                 rightMargin=10 * mm,
                 leftMargin=10 * mm,
@@ -904,15 +981,11 @@ class RoomManagementApp:
 
             story.append(t)
             doc.build(story)
-
-            messagebox.showinfo(
-                "Export erfolgreich", "Zeitplan wurde als schedule.pdf gespeichert."
-            )
+            
+            self.clear_error()
 
         except Exception as e:
-            messagebox.showerror(
-                "Export Fehler", f"Fehler beim Exportieren des Zeitplans: {str(e)}"
-            )
+            self.show_error(f"Fehler beim Exportieren des Zeitplans: {str(e)}")
 
     def _on_mousewheel(self, event, canvas):
         canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -924,6 +997,14 @@ class RoomManagementApp:
     def _on_frame_configure(self, event):
         # scrolling
         self.import_canvas.configure(scrollregion=self.import_canvas.bbox("all"))
+
+    def show_error(self, message):
+        """Display an error message in the UI"""
+        self.error_display.show(message)
+        
+    def clear_error(self):
+        """Clear the error message"""
+        self.error_display.clear()
 
 
 if __name__ == "__main__":
