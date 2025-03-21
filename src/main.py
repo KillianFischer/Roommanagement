@@ -346,6 +346,15 @@ class RoomManagementApp:
         tree["show"] = "headings"
 
         for col in columns:
+            tree.heading(col, text=col, anchor="w")  # Alle Überschriften linksbündig
+            tree.column(col, anchor="w", width=100)  # Alle Werte linksbündig
+
+        tree.tag_configure("oddrow", background="#f2f2f2")  # Abwechselnde Zeilenfarben
+        tree.tag_configure("evenrow", background="#ffffff")
+
+
+
+        for col in columns:
             tree.heading(col, text=col)
             tree.column(col, width=100)
 
@@ -355,17 +364,23 @@ class RoomManagementApp:
     def update_preview(self, tree, df, columns):
         for item in tree.get_children():
             tree.delete(item)
+        
         for idx, row in df.head(6).iterrows():
-            values = [
-                str(row[col]) if col in row and pd.notna(row[col]) else ""
-                for col in columns
-            ]
+            values = []
+            for col in columns:
+                if col in row and pd.notna(row[col]):
+                    value = row[col]
+                    if isinstance(value, (int, float)) and value.is_integer():
+                        values.append(str(int(value)))  # Ganze Zahl ohne Nachkommastellen
+                    else:
+                        values.append(str(value))  # Sonst als String belassen
+                else:
+                    values.append("")
+            
             tree.insert(
-                "",
-                tk.END,
-                values=values,
-                tags=("evenrow" if idx % 2 == 0 else "oddrow"),
+                "", tk.END, values=values, tags=("evenrow" if idx % 2 == 0 else "oddrow")
             )
+
 
     def get_import_file(self, env_key, dialog_title="Select file"):
         if self.dev_mode:
