@@ -4,6 +4,10 @@ from tkinter import ttk, filedialog, messagebox
 import pandas as pd
 import configparser
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables early
+load_dotenv()
 
 from services.scheduler import Scheduler
 from ui import ErrorDisplay
@@ -20,16 +24,115 @@ class RoomManagementApp:
         self.dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.import_folder = os.path.join(base_dir, os.getenv("IMPORT_FOLDER", "import/"))
+        
+        print(f"DEV_MODE: {self.dev_mode}")
+        print(f"IMPORT_FOLDER: {self.import_folder}")
+        print(f"Files in import folder: {os.listdir(self.import_folder) if os.path.exists(self.import_folder) else 'folder does not exist'}")
 
         if self.dev_mode and not os.path.exists(self.import_folder):
             os.makedirs(self.import_folder)
+            
+        # Set up global ttk styles
+        self.setup_styles()
 
         self.main_frame = ttk.Frame(self.root, padding="10")
         self.main_frame.grid(row=0, column=0, sticky="nsew")
 
         # Error display
         self.error_display = ErrorDisplay(self.main_frame, row=1, column=0)
+        
+        # Setup UI
+        self.setup_ui()
+        
+        # Auto import in dev mode - Execute directly instead of waiting for timer
+        if self.dev_mode:
+            print("Dev mode detected, performing auto-import immediately")
+            self.auto_import_files()
 
+    def auto_import_files(self):
+        """Automatically import files in dev mode if they exist in the import folder"""
+        try:
+            print("Starting auto import...")
+            
+            # Import rooms
+            rooms_file = os.path.join(self.import_folder, os.getenv("ROOM_LIST"))
+            if os.path.exists(rooms_file):
+                print(f"Loading rooms from {rooms_file}")
+                df = pd.read_excel(rooms_file, header=None)
+                if self.scheduler.load_rooms(df):
+                    self.rooms_status.config(
+                        text=f"Imported: {os.path.basename(rooms_file)}",
+                    )
+                    self.setup_preview_tree(self.rooms_preview, ["Raum"])
+                    self.update_preview(
+                        self.rooms_preview,
+                        df.rename(columns={df.columns[0]: "Raum"}),
+                        ["Raum"],
+                    )
+                    print("Rooms imported successfully")
+                else:
+                    print("Failed to import rooms: Invalid format")
+            else:
+                print(f"Rooms file not found: {rooms_file}")
+                
+            # Import companies
+            companies_file = os.path.join(self.import_folder, os.getenv("COMPANY_LIST"))
+            if os.path.exists(companies_file):
+                print(f"Loading companies from {companies_file}")
+                df = pd.read_excel(companies_file)
+                df.columns = df.columns.str.strip()
+                
+                # Handle different column names for minimum participants
+                if "Min." in df.columns and "Min. Teilnehmer" not in df.columns:
+                    # Rename "Min." to "Min. Teilnehmer"
+                    df = df.rename(columns={"Min.": "Min. Teilnehmer"})
+                
+                if self.scheduler.load_companies(df):
+                    self.companies_status.config(
+                        text=f"Imported: {os.path.basename(companies_file)}",
+                    )
+                    cols = [
+                        "Unternehmen",
+                        "Fachrichtung",
+                        "Max. Teilnehmer",
+                        "Min. Teilnehmer",
+                        "Frühester Zeitpunkt",
+                    ]
+                    self.setup_preview_tree(self.companies_preview, cols)
+                    self.update_preview(self.companies_preview, df, cols)
+                    print("Companies imported successfully")
+                else:
+                    print("Failed to import companies: Invalid format")
+            else:
+                print(f"Companies file not found: {companies_file}")
+                
+            # Import preferences
+            preferences_file = os.path.join(self.import_folder, os.getenv("STUDENT_PREFERENCES"))
+            if os.path.exists(preferences_file):
+                print(f"Loading preferences from {preferences_file}")
+                df = pd.read_excel(preferences_file)
+                df.columns = df.columns.str.strip()
+                if self.scheduler.load_student_preferences(df):
+                    self.preferences_status.config(
+                        text=f"Imported: {os.path.basename(preferences_file)}",
+                    )
+                    cols = ["Klasse", "Name", "Vorname"] + [
+                        f"Wahl {i}" for i in range(1, 7)
+                    ]
+                    self.setup_preview_tree(self.preferences_preview, cols)
+                    self.update_preview(self.preferences_preview, df, cols)
+                    print("Preferences imported successfully")
+                else:
+                    print("Failed to import preferences: Invalid format")
+            else:
+                print(f"Preferences file not found: {preferences_file}")
+                
+        except Exception as e:
+            print(f"Auto-import error: {str(e)}")
+            self.show_error(f"Auto-import error: {str(e)}")
+
+    def setup_ui(self):
+        """Set up the user interface"""
         self.notebook = ttk.Notebook(self.main_frame)
         self.notebook.grid(row=0, column=0, sticky="nsew")
 
@@ -100,6 +203,9 @@ class RoomManagementApp:
             command=self.preferences_preview.yview,
         )
         self.preferences_preview.configure(yscrollcommand=preferences_scrollbar.set)
+        
+        # Setup initial empty tree with styling
+        self.setup_preview_tree(self.preferences_preview, ["Klasse", "Name", "Vorname", "Wahl 1", "Wahl 2", "Wahl 3", "Wahl 4", "Wahl 5", "Wahl 6"])
 
         self.preferences_preview.grid(row=0, column=0, sticky="nsew")
         preferences_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -139,6 +245,9 @@ class RoomManagementApp:
             command=self.companies_preview.yview,
         )
         self.companies_preview.configure(yscrollcommand=companies_scrollbar.set)
+        
+        # Setup initial empty tree with styling
+        self.setup_preview_tree(self.companies_preview, ["Unternehmen", "Fachrichtung", "Max. Teilnehmer", "Min. Teilnehmer", "Frühester Zeitpunkt"])
 
         self.companies_preview.grid(row=0, column=0, sticky="nsew")
         companies_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -178,6 +287,9 @@ class RoomManagementApp:
             command=self.rooms_preview.yview,
         )
         self.rooms_preview.configure(yscrollcommand=rooms_scrollbar.set)
+        
+        # Setup initial empty tree with styling
+        self.setup_preview_tree(self.rooms_preview, ["Raum"])
 
         self.rooms_preview.grid(row=0, column=0, sticky="nsew")
         rooms_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -344,6 +456,71 @@ class RoomManagementApp:
         self.main_frame.columnconfigure(0, weight=1)
         self.main_frame.rowconfigure(0, weight=1)
 
+    def setup_styles(self):
+        """Set up ttk styles for the entire application"""
+        style = ttk.Style()
+        
+        # Set up Treeview colors for both dark and light mode
+        if self.is_dark_mode():
+            # Dark mode
+            style.configure("Treeview", background="#2d2d2d", fieldbackground="#2d2d2d", foreground="white")
+            style.configure("Treeview.Heading", background="#3f3f3f", foreground="white")
+            style.map('Treeview', background=[('selected', '#4a6984')], foreground=[('selected', 'white')])
+            
+            # Tag configs for alternating rows
+            style.map('Treeview', foreground=[])  # Reset the map
+            style.configure("Treeview", rowheight=25)
+            
+            # Define tag styles directly
+            self.oddrow_bg = "#3f3f3f"
+            self.evenrow_bg = "#2d2d2d"
+        else:
+            # Light mode
+            style.configure("Treeview", background="white", fieldbackground="white", foreground="black")
+            style.configure("Treeview.Heading", background="#f2f2f2", foreground="black")
+            style.map('Treeview', background=[('selected', '#3584e4')], foreground=[('selected', 'white')])
+            
+            # Tag configs for alternating rows
+            style.map('Treeview', foreground=[])  # Reset the map
+            style.configure("Treeview", rowheight=25)
+            
+            # Define tag styles directly
+            self.oddrow_bg = "#f2f2f2"
+            self.evenrow_bg = "white"
+            
+    def is_dark_mode(self):
+        """Detect if system is using dark mode"""
+        # Check if background of Frame is dark
+        style = ttk.Style()
+        bg_color = style.lookup('TFrame', 'background')
+        
+        # If no background color found, assume light mode
+        if not bg_color:
+            return False
+            
+        # Try to detect based on Mac system appearance
+        try:
+            # macOS specific check
+            if sys.platform == "darwin":
+                import subprocess
+                cmd = "defaults read -g AppleInterfaceStyle"
+                result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+                return result.stdout.strip() == "Dark"
+        except:
+            pass
+            
+        # Try to detect based on color brightness
+        try:
+            if bg_color.startswith('#'):
+                # Hex color
+                rgb = tuple(int(bg_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+                brightness = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255
+                return brightness < 0.5
+        except:
+            pass
+            
+        return False
+
     def setup_preview_tree(self, tree, columns):
         tree["columns"] = columns
         tree["show"] = "headings"
@@ -352,17 +529,9 @@ class RoomManagementApp:
             tree.heading(col, text=col, anchor="w")  # Alle Überschriften linksbündig
             tree.column(col, anchor="w", width=100)  # Alle Werte linksbündig
 
-        tree.tag_configure("oddrow", background="#f2f2f2")  # Abwechselnde Zeilenfarben
-        tree.tag_configure("evenrow", background="#ffffff")
-
-
-
-        for col in columns:
-            tree.heading(col, text=col)
-            tree.column(col, width=100)
-
-        tree.tag_configure("oddrow")
-        tree.tag_configure("evenrow")
+        # Apply the tag configurations
+        tree.tag_configure("oddrow", background=self.oddrow_bg)
+        tree.tag_configure("evenrow", background=self.evenrow_bg)
 
     def update_preview(self, tree, df, columns):
         for item in tree.get_children():
@@ -385,26 +554,34 @@ class RoomManagementApp:
             )
 
 
-    def get_import_file(self, env_key, dialog_title="Select file"):
+    def get_import_file(self, env_key, dialog_title="Select file", auto_mode=False):
         if self.dev_mode:
             filename = os.getenv(env_key)
             if filename:
                 filepath = os.path.join(self.import_folder, filename)
                 if os.path.exists(filepath):
+                    print(f"Using file from import folder: {filepath}")
                     return filepath
                 else:
+                    print(f"Warning: File not found in import folder")
                     print(f"filename from env: {filename}")
                     print(f"filepath: {filepath}")
+                    print(f"import_folder: {self.import_folder}")
                     print(f"exists: {os.path.exists(filepath)}")
-                    print("opening file dialog")
+                    print(f"files in import folder: {os.listdir(self.import_folder) if os.path.exists(self.import_folder) else 'folder does not exist'}")
+                    if auto_mode:
+                        return None
 
+        if auto_mode:
+            return None
+            
         return filedialog.askopenfilename(
             title=dialog_title, filetypes=[("Excel files", "*.xlsx")]
         )
 
-    def import_preferences(self):
+    def import_preferences(self, auto_mode=False):
         file_path = self.get_import_file(
-            "STUDENT_PREFERENCES", "Import Student Preferences"
+            "STUDENT_PREFERENCES", "Import Student Preferences", auto_mode
         )
         if file_path:
             try:
@@ -428,8 +605,8 @@ class RoomManagementApp:
                     text=f"Error: {str(e)}",
                 )
 
-    def import_companies(self):
-        file_path = self.get_import_file("COMPANY_LIST", "Import Company List")
+    def import_companies(self, auto_mode=False):
+        file_path = self.get_import_file("COMPANY_LIST", "Import Company List", auto_mode)
         if file_path:
             try:
                 df = pd.read_excel(file_path)
@@ -458,10 +635,12 @@ class RoomManagementApp:
                         text="Ungültiges Format",
                     )
             except Exception as e:
-                self.companies_status.config(text=f"Error: {str(e)}", foreground="red")
+                self.companies_status.config(
+                    text=f"Error: {str(e)}",
+                )
 
-    def import_rooms(self):
-        file_path = self.get_import_file("ROOM_LIST", "Import Room List")
+    def import_rooms(self, auto_mode=False):
+        file_path = self.get_import_file("ROOM_LIST", "Import Room List", auto_mode)
         if file_path:
             try:
                 df = pd.read_excel(file_path, header=None)
@@ -519,11 +698,15 @@ class RoomManagementApp:
                 slot, text=f"{slot} ({time_range})", anchor=tk.CENTER
             )
             
+        # Apply tag configurations
+        self.schedule_tree.tag_configure("oddrow", background=self.oddrow_bg)
+        self.schedule_tree.tag_configure("evenrow", background=self.evenrow_bg)
+
         # Get company data from scheduler
         schedule = self.scheduler.get_schedule()
         companies = [c for c in self.scheduler.core.companies if (c.name, -1) not in schedule]
 
-        for company in companies:
+        for idx, company in enumerate(companies):
             row = [company.name]
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
                 if slot_idx < company.earliest_slot or slot_idx in company.blocked_slots:
@@ -543,7 +726,7 @@ class RoomManagementApp:
                     else:
                         text = "---"
                 row.append(text)
-            self.schedule_tree.insert("", tk.END, values=row)
+            self.schedule_tree.insert("", tk.END, values=row, tags=("evenrow" if idx % 2 == 0 else "oddrow"))
 
     def export_student_schedules(self):
         self.clear_error()
