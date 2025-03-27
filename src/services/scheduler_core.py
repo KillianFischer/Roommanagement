@@ -1,16 +1,21 @@
 from typing import List, Dict, Optional, Tuple, Callable
 import pandas as pd
 from tkinter import messagebox
+import logging
 
 from models.student import StudentPreference
 from models.company import Company, CompanySession
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class SchedulerCore:
     def __init__(self, error_handler: Optional[Callable[[str], None]] = None):
         self.student_preferences: Optional[List[StudentPreference]] = None
         self.companies: Optional[List[Company]] = None
         self.rooms: Optional[List[str]] = None
+        self.room_capacities: Dict[str, int] = {}  # Store room capacities
         # Schedule: maps, company name, slot
         self.schedule: Dict[Tuple[str, int], CompanySession] = {}
         # Time slots
@@ -36,6 +41,7 @@ class SchedulerCore:
 
         df.columns = df.columns.str.strip()
         self.student_preferences = StudentPreference.from_dataframe(df, company_mapping)
+        logger.info(f"Loaded {len(self.student_preferences)} student preferences")
         return True
 
     def load_companies(self, df: pd.DataFrame) -> bool:
@@ -43,19 +49,52 @@ class SchedulerCore:
             return False
         df.columns = df.columns.str.strip()
         self.companies = Company.from_dataframe(df)
+        logger.info(f"Loaded {len(self.companies)} companies")
         return True
 
     def load_rooms(self, df: pd.DataFrame) -> bool:
         if df is None or df.empty:
             return False
         
-        # Check if "Raum" is in the columns, if not use the first column
-        if "Raum" in df.columns:
-            self.rooms = [str(row["Raum"]).strip() for _, row in df.iterrows()]
-        else:
-            # Use the first column
-            self.rooms = [str(row[0]).strip() for _, row in df.iterrows()]
+        self.rooms = []
+        self.room_capacities = {}
         
+        # Check if "Raum" and "Kapazität" are in the columns
+        if "Raum" in df.columns:
+            room_col = "Raum"
+            capacity_col = "Kapazität" if "Kapazität" in df.columns else None
+        else:
+            # Use the first column for room and second for capacity if available
+            room_col = df.columns[0]
+            capacity_col = df.columns[1] if len(df.columns) > 1 else None
+        
+        # List of values to exclude (headers, empty values, etc.)
+        excluded_values = ["raum", "room", "räume", "rooms", ""]
+        
+        for _, row in df.iterrows():
+            # Get the room name and clean it
+            room_name = str(row[room_col]).strip()
+            
+            # Skip if the room name is empty or matches an excluded value
+            if not room_name or room_name.lower() in excluded_values:
+                logger.info(f"Skipping room entry: '{room_name}' (likely a header or empty value)")
+                continue
+            
+            # Add the room to our list
+            self.rooms.append(room_name)
+            
+            # Store capacity if available
+            if capacity_col and pd.notna(row[capacity_col]):
+                try:
+                    capacity = int(row[capacity_col])
+                    self.room_capacities[room_name] = capacity
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid capacity value for room {room_name}: {row[capacity_col]}")
+                    self.room_capacities[room_name] = 30  # Default capacity
+            else:
+                self.room_capacities[room_name] = 30  # Default capacity if not specified
+        
+        logger.info(f"Loaded {len(self.rooms)} rooms with capacities: {self.room_capacities}")
         return True
 
     def is_data_loaded(self) -> bool:
@@ -68,6 +107,9 @@ class SchedulerCore:
     def generate_schedule(self) -> bool:
         try:
             self.schedule.clear()
+            
+            # Initialize room usage tracking
+            self._room_usage = {room: {t: None for t in range(len(self.time_slots))} for room in self.rooms}
             
             # Count student wishes to determine company popularity
             _, number_to_company = self._create_company_mappings()
@@ -90,9 +132,6 @@ class SchedulerCore:
             
             # Handle companies with duplicate names by setting flags
             self._mark_duplicate_companies(sorted_companies)
-            
-            # Initialize room availability tracking
-            self._room_usage = {room: {t: None for t in range(len(self.time_slots))} for room in self.rooms}
             
             # Always reserve Aula for Polizei in all time slots - ONLY if Aula exists
             if "Aula" in self.rooms and polizei_company:
@@ -131,7 +170,7 @@ class SchedulerCore:
             # Validate the schedule
             is_valid = self.debug_room_assignments()
             if not is_valid:
-                print("WARNING: Schedule validation found issues! See debug output above.")
+                logger.warning("WARNING: Schedule validation found issues! See debug output above.")
                              
             return True
         except Exception as e:
@@ -214,94 +253,152 @@ class SchedulerCore:
                 company.always_show_field = True
                 
     def _assign_companies_to_rooms(self, companies, wish_counts):
-        """Assign companies to rooms and time slots without conflicts"""
-        # For each company, determine how many time slots they need
+        """Assign companies to rooms, considering room capacities"""
+        logger.info("Assigning companies to rooms")
+        
+        # Sort rooms by capacity (larger rooms first)
+        sorted_rooms = sorted(self.rooms, key=lambda r: self.room_capacities.get(r, 0), reverse=True)
+        logger.debug(f"Rooms sorted by capacity: {sorted_rooms}")
+        
+        # Debug: List all room names to identify problematic entries
+        logger.info(f"Available rooms: {sorted_rooms}")
+        # Check for 'Raum' entries in the room list and warn about them
+        raum_entries = [r for r in sorted_rooms if r.lower() == "raum"]
+        if raum_entries:
+            logger.warning(f"Found {len(raum_entries)} 'Raum' entries in the room list. These may cause problems: {raum_entries}")
+        
+        # Filter out any "Raum" entries that might have slipped through
+        filtered_rooms = [r for r in sorted_rooms if r.lower() != "raum"]
+        if len(filtered_rooms) != len(sorted_rooms):
+            logger.info(f"Filtered out {len(sorted_rooms) - len(filtered_rooms)} 'Raum' entries from room list")
+            sorted_rooms = filtered_rooms
+        
+        # Log which companies we're assigning
+        logger.info(f"Companies to assign: {[company.name for company in companies]}")
+        
+        # Check for Finanzamt company
+        finanzamt_companies = [c for c in companies if "finanzamt" in c.name.lower()]
+        if finanzamt_companies:
+            logger.info(f"Found Finanzamt companies: {[c.name for c in finanzamt_companies]}")
+            
+            # Set a fixed room for Finanzamt if we don't have one already
+            for finanzamt in finanzamt_companies:
+                if not hasattr(finanzamt, 'fixed_room') or not finanzamt.fixed_room:
+                    # Look for a room with finanzamt in the name
+                    finanzamt_rooms = [r for r in sorted_rooms if any(term in r.lower() for term in ["finanz", "steuer", "amt"])]
+                    if finanzamt_rooms:
+                        finanzamt.fixed_room = finanzamt_rooms[0]
+                        logger.info(f"Set fixed room for {finanzamt.name} to {finanzamt.fixed_room}")
+        
+        # Assign popular companies to larger rooms
         for company in companies:
-            company_name = company.name.strip()
-            total_interest = wish_counts.get(company_name, 0)
+            wish_count = wish_counts.get(company.name.strip(), 0)
+            logger.info(f"Assigning {company.name} (popularity: {wish_count}) to rooms")
             
-            # Calculate needed slots based on total interest and capacity
-            if total_interest <= company.capacity:
-                needed_slots = 1
-            else:
-                # Instead of a simple 20 students per slot, use the company's capacity
-                needed_slots = (total_interest + (company.capacity - 1)) // company.capacity
-                needed_slots = min(needed_slots, len(self.time_slots) - company.earliest_slot)
-            
-            print(f"Company {company_name}: total interest {total_interest}, capacity {company.capacity}, needed slots {needed_slots}")
-            
-            # Find a room available for consecutive time slots starting from earliest
-            found_room = False
-            
-            # Try to find a room for this company for all its needed slots
-            for room in self.rooms:
-                # Skip Aula - it's reserved for Polizei
-                if room == "Aula":
-                    continue
-                    
-                can_use_room = True
-                # Check if room is available for all needed consecutive slots
-                for slot_offset in range(needed_slots):
-                    slot_idx = company.earliest_slot + slot_offset
-                    if slot_idx >= len(self.time_slots):
-                        can_use_room = False
-                        break
-                        
-                    if self._room_usage[room][slot_idx] is not None:
-                        can_use_room = False
-                        break
+            # Skip if no students are interested
+            if wish_count == 0:
+                logger.debug(f"Skipping {company.name} - no student interest")
+                continue
                 
-                if can_use_room:
-                    # Assign company to this room for all needed slots
-                    for slot_offset in range(needed_slots):
-                        slot_idx = company.earliest_slot + slot_offset
-                        self._room_usage[room][slot_idx] = company.unique_id  # Use unique ID instead of name
-                        
-                        slot_letter, time_range = self.time_slots[slot_idx]
-                        session = CompanySession(
-                            company=company,
-                            room=room,
-                            time_slot=slot_letter,
-                            time_range=time_range,
-                        )
-                        self.schedule[(company.unique_id, slot_idx)] = session
-                    
-                    found_room = True
-                    break
+            # Determine how many students we expect (up to company capacity)
+            expected_students = min(wish_count, company.capacity)
             
-            # If no room was found for all consecutive slots, try to assign to different rooms
-            if not found_room:
-                for slot_offset in range(needed_slots):
-                    slot_idx = company.earliest_slot + slot_offset
-                    if slot_idx >= len(self.time_slots):
-                        continue
-                        
-                    # Find any available room for this slot
-                    assigned = False
-                    for room in self.rooms:
-                        if room == "Aula":  # Skip Aula
-                            continue
-                            
-                        if self._room_usage[room][slot_idx] is None:
-                            self._room_usage[room][slot_idx] = company.unique_id  # Use unique ID instead of name
-                            
-                            slot_letter, time_range = self.time_slots[slot_idx]
-                            session = CompanySession(
-                                company=company,
-                                room=room,
-                                time_slot=slot_letter,
-                                time_range=time_range,
-                            )
-                            self.schedule[(company.unique_id, slot_idx)] = session
-                            
-                            assigned = True
+            # Find suitable rooms - rooms with enough capacity
+            suitable_rooms = [r for r in sorted_rooms if self.room_capacities.get(r, 0) >= expected_students]
+            if not suitable_rooms:
+                logger.warning(f"No room with sufficient capacity for {company.name} ({expected_students} students)")
+                # Fall back to the largest available room
+                suitable_rooms = sorted_rooms
+            
+            logger.info(f"Suitable rooms for {company.name}: {suitable_rooms}")
+            
+            # Check for a fixed room assignment
+            fixed_room = None
+            
+            # First check if company has a fixed_room property
+            if hasattr(company, 'fixed_room') and company.fixed_room:
+                if company.fixed_room in sorted_rooms:
+                    fixed_room = company.fixed_room
+                    logger.info(f"Using company's fixed room: {fixed_room} for {company.name}")
+                else:
+                    logger.warning(f"Company {company.name} has fixed room {company.fixed_room} but it's not available")
+            
+            # Finanzamt special handling
+            if not fixed_room and "finanzamt" in company.name.lower():
+                logger.info(f"Special handling for Finanzamt company: {company.name}")
+                
+                # First try to find a room specifically for Finanzamt
+                finanzamt_rooms = [r for r in suitable_rooms if any(term in r.lower() for term in ["finanz", "steuer", "amt"])]
+                logger.info(f"Potential Finanzamt rooms: {finanzamt_rooms}")
+                
+                # If found, use it
+                if finanzamt_rooms:
+                    fixed_room = finanzamt_rooms[0]
+                    logger.info(f"Found dedicated Finanzamt room: {fixed_room}")
+                    # Store it for future use
+                    company.fixed_room = fixed_room
+                else:
+                    # Otherwise, assign to one of the larger rooms that's not "Raum"
+                    non_raum_rooms = [r for r in suitable_rooms if r.lower() != "raum"]
+                    if non_raum_rooms:
+                        fixed_room = non_raum_rooms[0]
+                        logger.info(f"No dedicated Finanzamt room found, using: {fixed_room}")
+                        # Store it for future use
+                        company.fixed_room = fixed_room
+                    else:
+                        logger.warning(f"No suitable room found for Finanzamt, using any available room")
+                        # Use any suitable room if we can't find a better one
+                        if suitable_rooms:
+                            fixed_room = suitable_rooms[0]
+                            company.fixed_room = fixed_room
+            
+            # Assign to rooms and time slots
+            for slot_idx in range(company.earliest_slot, len(self.time_slots)):
+                # Skip this slot if it's in the company's blocked slots
+                if hasattr(company, 'blocked_slots') and slot_idx in company.blocked_slots:
+                    logger.info(f"Skipping slot {slot_idx} for {company.name} as it's in blocked slots")
+                    continue
+                
+                slot_letter, time_range = self.time_slots[slot_idx]
+                
+                # Try to use fixed room first if available
+                if fixed_room and self._room_usage.get(fixed_room, {}).get(slot_idx) is None:
+                    assigned_room = fixed_room
+                    logger.info(f"Using fixed room {fixed_room} for {company.name} in slot {slot_letter}")
+                else:
+                    # Try to find an available room for this slot
+                    assigned_room = None
+                    for room in suitable_rooms:
+                        if room.lower() != "raum" and self._room_usage.get(room, {}).get(slot_idx) is None:
+                            # Room is available for this slot
+                            assigned_room = room
                             break
+                
+                if assigned_room:
+                    # Mark room as used for this slot
+                    if assigned_room not in self._room_usage:
+                        self._room_usage[assigned_room] = {t: None for t in range(len(self.time_slots))}
+                    self._room_usage[assigned_room][slot_idx] = company.unique_id
                     
-                    if not assigned:
-                        # If we can't find a room for this slot, skip it
-                        # This means the company doesn't get all its needed slots
-                        continue
-            
+                    # Create the session
+                    session = CompanySession(
+                        company=company,
+                        room=assigned_room,
+                        time_slot=slot_letter,
+                        time_range=time_range,
+                    )
+                    self.schedule[(company.unique_id, slot_idx)] = session
+                    
+                    # Extra logging for Finanzamt
+                    if "finanzamt" in company.name.lower():
+                        logger.info(f"*** FINANZAMT ASSIGNMENT: {company.name} assigned to room {assigned_room} for slot {slot_letter} ***")
+                    else:
+                        logger.info(f"Assigned {company.name} to room {assigned_room} for slot {slot_letter}")
+                else:
+                    logger.warning(f"Could not find available room for {company.name} in slot {slot_letter}")
+                    
+        logger.info(f"Assigned {len(self.schedule)} sessions in total")
+        
     def _prepare_company_sessions(self):
         company_sessions = {}
         for (company_id, slot_idx), session in self.schedule.items():
@@ -328,7 +425,11 @@ class SchedulerCore:
         
         # First, get all student wishes and organize them by company
         company_wish_lists = {}
+        student_wish_map = {}  # Map from student_id to their wishes as company_ids
+        
         for student in self.student_preferences:
+            student_wish_map[student.student_id] = []
+            
             for wish_idx, wish in enumerate(student.wishes):
                 if not wish:
                     continue
@@ -360,9 +461,13 @@ class SchedulerCore:
                     'wish_number': wish_idx + 1,  # 1-indexed
                     'priority': wish_idx,  # Lower is higher priority
                 })
+                
+                # Store in student wish map
+                student_wish_map[student.student_id].append((company_id, wish_idx + 1))
         
         # Initialize student assignments tracking
         student_assignments = {student.student_id: set() for student in self.student_preferences}
+        student_fulfilled_wishes = {student.student_id: [] for student in self.student_preferences}
         total_time_slots = len(self.time_slots)
         
         # First, sort companies by popularity (number of wishes)
@@ -372,7 +477,261 @@ class SchedulerCore:
             reverse=True
         )
         
-        # First pass: Assign students to their wishes where possible
+        # First pass: Ensure every student gets an assignment for the first time slot (A)
+        # This ensures that student schedules always start with slot A
+        first_slot_idx = 0
+        logger.info(f"First making sure every student has an assignment for slot A (index {first_slot_idx})")
+        
+        # Get all sessions available for the first slot
+        first_slot_sessions = []
+        for company_id, slots in company_sessions.items():
+            for slot_idx, session in slots:
+                if slot_idx == first_slot_idx:
+                    first_slot_sessions.append((company_id, session))
+        
+        if first_slot_sessions:
+            # Assign each student to one session in the first slot
+            unassigned_students = [s for s in self.student_preferences]
+            
+            # First try to assign students to their wish companies in slot A
+            for student in list(unassigned_students):
+                if student.student_id not in student_wish_map:
+                    continue
+                    
+                # Check if any of student's wishes are available in slot A
+                assigned = False
+                for company_id, wish_number in student_wish_map[student.student_id]:
+                    # Find a session with this company in slot A
+                    for i, (session_company_id, session) in enumerate(first_slot_sessions):
+                        if session_company_id == company_id and not session.is_full():
+                            # Assign student
+                            session.add_student(student.student_id, student.name)
+                            session.students[-1]["wish_number"] = wish_number
+                            
+                            # Mark this slot as assigned
+                            student_assignments[student.student_id].add(first_slot_idx)
+                            student_fulfilled_wishes[student.student_id].append((company_id, wish_number))
+                            assigned = True
+                            
+                            # If session is now full, remove it from available sessions
+                            if session.is_full():
+                                first_slot_sessions.pop(i)
+                                
+                            # Remove student from unassigned list
+                            unassigned_students.remove(student)
+                            break
+                    
+                    if assigned:
+                        break
+            
+            # For remaining unassigned students, assign to any available session
+            while unassigned_students and first_slot_sessions:
+                # Get a student
+                student = unassigned_students.pop(0)
+                
+                # Find a session with space
+                assigned = False
+                for i, (company_id, session) in enumerate(first_slot_sessions):
+                    if not session.is_full():
+                        # Check if this student has this company in their wishes
+                        wish_number = None
+                        for wish_idx, wish in enumerate(student.wishes):
+                            if not wish:
+                                continue
+                                
+                            try:
+                                wish_num = int(float(str(wish).strip()))
+                                wish_company = number_to_company.get(wish_num, str(wish).strip())
+                                if company_id == company_id_map.get(wish_company):
+                                    wish_number = wish_idx + 1
+                                    break
+                            except (ValueError, TypeError):
+                                wish_str = str(wish).strip()
+                                if company_id == company_id_map.get(wish_str):
+                                    wish_number = wish_idx + 1
+                                    break
+                        
+                        # Assign student
+                        session.add_student(student.student_id, student.name)
+                        session.students[-1]["wish_number"] = wish_number if wish_number else "-"
+                        
+                        # Mark this slot as assigned
+                        student_assignments[student.student_id].add(first_slot_idx)
+                        if wish_number:
+                            student_fulfilled_wishes[student.student_id].append((company_id, wish_number))
+                        assigned = True
+                        
+                        # If session is now full, remove it from available sessions
+                        if session.is_full():
+                            first_slot_sessions.pop(i)
+                            
+                        break
+                
+                # If student couldn't be assigned to any session, create a new one if possible
+                if not assigned:
+                    logger.info(f"Need to create a new session for student {student.student_id} in first slot")
+                    
+                    # First try to create session with one of student's wishes
+                    if student.student_id in student_wish_map:
+                        for company_id, wish_number in student_wish_map[student.student_id]:
+                            # Find the company object
+                            company = None
+                            for c in self.companies:
+                                if c.unique_id == company_id:
+                                    company = c
+                                    break
+                                    
+                            if not company or company.earliest_slot > first_slot_idx:
+                                continue  # Skip if company can't be scheduled in first slot
+                                
+                            # Find an available room
+                            for room in self.rooms:
+                                if room == "Aula":  # Skip Aula
+                                    continue
+                                    
+                                # Check if room is free for this slot
+                                if self._room_usage[room][first_slot_idx] is None:
+                                    # Create a new session
+                                    self._room_usage[room][first_slot_idx] = company_id
+                                    
+                                    slot_letter, time_range = self.time_slots[first_slot_idx]
+                                    new_session = CompanySession(
+                                        company=company,
+                                        room=room,
+                                        time_slot=slot_letter,
+                                        time_range=time_range,
+                                    )
+                                    
+                                    # Add student
+                                    new_session.add_student(student.student_id, student.name)
+                                    new_session.students[-1]["wish_number"] = wish_number
+                                    
+                                    # Add to schedule
+                                    self.schedule[(company_id, first_slot_idx)] = new_session
+                                    
+                                    # Update company_sessions
+                                    if company_id not in company_sessions:
+                                        company_sessions[company_id] = []
+                                    company_sessions[company_id].append((first_slot_idx, new_session))
+                                    
+                                    # Add to first slot sessions
+                                    first_slot_sessions.append((company_id, new_session))
+                                    
+                                    # Mark slot as assigned
+                                    student_assignments[student.student_id].add(first_slot_idx)
+                                    student_fulfilled_wishes[student.student_id].append((company_id, wish_number))
+                                    assigned = True
+                                    break
+                            
+                            # If we assigned a session, stop
+                            if assigned:
+                                break
+                    
+                    # If still not assigned, try with any available company
+                    if not assigned:
+                        # Find an available company and room
+                        for company in self.companies:
+                            if company.earliest_slot > first_slot_idx:
+                                continue  # Company can't be scheduled in first slot
+                                
+                            # Find an available room
+                            for room in self.rooms:
+                                if room == "Aula":  # Skip Aula
+                                    continue
+                                    
+                                # Check if room is free for this slot
+                                if self._room_usage[room][first_slot_idx] is None:
+                                    # Create a new session
+                                    self._room_usage[room][first_slot_idx] = company.unique_id
+                                    
+                                    slot_letter, time_range = self.time_slots[first_slot_idx]
+                                    new_session = CompanySession(
+                                        company=company,
+                                        room=room,
+                                        time_slot=slot_letter,
+                                        time_range=time_range,
+                                    )
+                                    
+                                    # Add student
+                                    new_session.add_student(student.student_id, student.name)
+                                    new_session.students[-1]["wish_number"] = "-"  # Not a wish
+                                    
+                                    # Add to schedule
+                                    self.schedule[(company.unique_id, first_slot_idx)] = new_session
+                                    
+                                    # Update company_sessions
+                                    if company.unique_id not in company_sessions:
+                                        company_sessions[company.unique_id] = []
+                                    company_sessions[company.unique_id].append((first_slot_idx, new_session))
+                                    
+                                    # Add to first slot sessions
+                                    first_slot_sessions.append((company.unique_id, new_session))
+                                    
+                                    # Mark slot as assigned
+                                    student_assignments[student.student_id].add(first_slot_idx)
+                                    assigned = True
+                                    break
+                            
+                            # If we assigned a session, stop
+                            if assigned:
+                                break
+        
+        # Second pass: Focus on top wishes (1-3) for each student
+        logger.info("Prioritizing top wishes (1-3) for each student")
+        for student in self.student_preferences:
+            # Skip if student already has 3 or more wishes fulfilled
+            if len(student_fulfilled_wishes[student.student_id]) >= 3:
+                continue
+                
+            # Get this student's top wishes that haven't been fulfilled yet
+            top_wishes = []
+            if student.student_id in student_wish_map:
+                for company_id, wish_number in student_wish_map[student.student_id]:
+                    # Only consider wishes 1-3
+                    if wish_number <= 3:
+                        # Check if this wish has been fulfilled
+                        if not any(w[0] == company_id for w in student_fulfilled_wishes[student.student_id]):
+                            top_wishes.append((company_id, wish_number))
+            
+            # Sort by wish number (lower is better)
+            top_wishes.sort(key=lambda x: x[1])
+            
+            # Try to fulfill each top wish
+            for company_id, wish_number in top_wishes:
+                # If student already has all slots filled, skip
+                if len(student_assignments[student.student_id]) >= total_time_slots:
+                    break
+                
+                # Get available sessions for this company
+                company_slots = []
+                if company_id in company_sessions:
+                    for slot_idx, session in company_sessions[company_id]:
+                        # Skip if student already has an assignment in this slot
+                        if slot_idx in student_assignments[student.student_id]:
+                            continue
+                            
+                        # Skip if session is full
+                        if session.is_full():
+                            continue
+                            
+                        company_slots.append((slot_idx, session))
+                
+                # If there are available slots, assign student
+                if company_slots:
+                    # Choose the slot with the fewest students
+                    company_slots.sort(key=lambda x: len(x[1].students))
+                    slot_idx, session = company_slots[0]
+                    
+                    # Assign student
+                    session.add_student(student.student_id, student.name)
+                    session.students[-1]["wish_number"] = wish_number
+                    
+                    # Mark slot as assigned
+                    student_assignments[student.student_id].add(slot_idx)
+                    student_fulfilled_wishes[student.student_id].append((company_id, wish_number))
+        
+        # Third pass: Assign students to their remaining wishes where possible
+        logger.info("Continuing with regular assignment for remaining slots and wishes")
         for company_id in sorted_companies:
             if company_id not in company_sessions:
                 continue
@@ -391,14 +750,18 @@ class SchedulerCore:
             # Calculate how many students we can assign per session
             if len(company_slots) > 1:
                 students_per_session = max(1, len(wish_list) // len(company_slots))
-                print(f"Company {company_id}: {len(wish_list)} students, {len(company_slots)} slots, {students_per_session} per slot")
+                logger.info(f"Company {company_id}: {len(wish_list)} students, {len(company_slots)} slots, {students_per_session} per slot")
             else:
                 students_per_session = len(wish_list)
             
-            # First assign high-priority wishes
+            # Assign remaining wishes
             for wish_data in wish_list:
                 student = wish_data['student']
                 wish_number = wish_data['wish_number']
+                
+                # Skip if this wish has already been fulfilled
+                if any(w[0] == company_id for w in student_fulfilled_wishes[student.student_id]):
+                    continue
                 
                 # If student already has all slots filled, skip
                 if len(student_assignments[student.student_id]) >= total_time_slots:
@@ -421,10 +784,12 @@ class SchedulerCore:
                     
                     # Mark this slot as assigned for this student
                     student_assignments[student.student_id].add(slot_idx)
+                    student_fulfilled_wishes[student.student_id].append((company_id, wish_number))
                     assigned = True
                     break
         
-        # Second pass: Make sure each student has all 5 time slots filled
+        # Fourth pass: Make sure each student has all time slots filled
+        logger.info("Filling in remaining slots for all students")
         for student in self.student_preferences:
             assigned_slots = student_assignments[student.student_id]
             
@@ -510,207 +875,182 @@ class SchedulerCore:
                         # If we assigned a session, move to the next slot
                         if slot_idx in assigned_slots:
                             break
+
+    def _calculate_student_fulfillment_scores(self, number_to_company):
+        """
+        Calculate fulfillment scores for each student based on how well their wishes were met
+        Uses the weighting from the example Excel sheet: 
+        - Wish 1 = 6 points
+        - Wish 2 = 5 points 
+        - Wish 3 = 4 points
+        - Wish 4 = 3 points
+        - Wish 5 = 2 points
+        - Wish 6 = 1 point
+        """
+        logger.info("Calculating student fulfillment scores")
         
-        # Third pass: Handle student fairness - try to spread out unassigned wishes
-        # This ensures that one student doesn't get all their wishes while another gets none
-        student_wish_counts = {}
-        for student in self.student_preferences:
-            # Count how many wishes were fulfilled
-            wish_count = 0
-            for (c_id, slot_idx), session in self.schedule.items():
-                if slot_idx == -1:
-                    continue
-                for sd in session.students:
-                    if sd["id"] == student.student_id and sd.get("wish_number", "-") != "-":
-                        wish_count += 1
-            student_wish_counts[student.student_id] = wish_count
+        # Create wish weighting
+        wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
+        max_score_per_student = 20  # Maximum possible score per student per session
         
-        # Sort students by wish fulfillment (fewer fulfilled wishes first)
-        sorted_students = sorted(
-            self.student_preferences,
-            key=lambda s: student_wish_counts.get(s.student_id, 0)
-        )
+        # Create a mapping from company unique ID to company name
+        company_id_to_name = {}
+        for company in self.companies:
+            company_id_to_name[company.unique_id] = company.name
         
-        # Try to improve fulfillment for students with few wishes granted
-        for student in sorted_students:
-            # Only consider students with few wishes fulfilled
-            if student_wish_counts.get(student.student_id, 0) >= 2:
+        # Create a mapping to track what sessions each student has been assigned to
+        student_assignments = {}
+        
+        # Create a mapping to track which wish corresponds to which session for each student
+        student_wish_fulfillment = {}
+        
+        # First, build a dictionary of which company each student is assigned to for each slot
+        for (company_id, slot_idx), session in self.schedule.items():
+            if slot_idx == -1:  # Skip excluded sessions
                 continue
                 
-            # Check which slots have non-wish assignments
-            non_wish_slots = []
-            for (c_id, slot_idx), session in self.schedule.items():
-                if slot_idx == -1:
-                    continue
-                for sd in session.students:
-                    if sd["id"] == student.student_id and sd.get("wish_number", "-") == "-":
-                        non_wish_slots.append((slot_idx, c_id, session))
+            for student in session.students:
+                student_id = student["id"]
+                
+                if student_id not in student_assignments:
+                    student_assignments[student_id] = {}
+                    student_wish_fulfillment[student_id] = {}
+                
+                # Map slot to company for this student
+                student_assignments[student_id][slot_idx] = company_id
+        
+        # Now evaluate if students got their wishes
+        total_score = 0
+        total_possible_score = 0
+        student_scores = {}
+        
+        for student in self.student_preferences:
+            student_id = student.student_id
+            if student_id not in student_assignments:
+                student_scores[student_id] = 0
+                continue
             
-            # For each non-wish slot, try to swap with a wish if possible
-            for slot_idx, current_c_id, current_session in non_wish_slots:
-                # See if any of the student's wishes can be fulfilled
-                for wish_idx, wish in enumerate(student.wishes):
+            # Calculate score for this student
+            student_score = 0
+            
+            for slot_idx, company_id in student_assignments[student_id].items():
+                company_name = company_id_to_name.get(company_id, "")
+                
+                # Check if this company was in student's wishes
+                wish_fulfilled = False
+                for wish_idx, wish in enumerate(student.wishes, 1):
                     if not wish:
                         continue
                         
-                    company_id = None
                     try:
+                        # Try to match by company number
                         wish_num = int(float(str(wish).strip()))
-                        for company in self.companies:
-                            if str(wish_num) == company.name.strip():
-                                company_id = company.unique_id
-                                break
-                        if not company_id and wish_num in number_to_company:
-                            name = number_to_company[wish_num]
-                            company_id = company_id_map.get(name)
+                        wish_company = number_to_company.get(wish_num, str(wish).strip())
                     except (ValueError, TypeError):
-                        wish_str = str(wish).strip()
-                        company_id = company_id_map.get(wish_str)
+                        wish_company = str(wish).strip()
                     
-                    if not company_id or company_id == current_c_id:
-                        continue
-                    
-                    # Check if this company has any sessions in this time slot
-                    for (c_id, s_idx), session in self.schedule.items():
-                        if c_id == company_id and s_idx == slot_idx:
-                            # Found a session for the wish company in this slot
-                            if not session.is_full():
-                                # Remove from current session
-                                current_session.students = [sd for sd in current_session.students if sd["id"] != student.student_id]
-                                
-                                # Add to new session with wish number
-                                session.add_student(student.student_id, student.name)
-                                session.students[-1]["wish_number"] = wish_idx + 1
-                                
-                                # Update wish count
-                                student_wish_counts[student.student_id] += 1
-                                break
-                    
-                    # If wish was fulfilled, move to next slot
-                    if student_wish_counts[student.student_id] > 0:
+                    if wish_company.lower() == company_name.lower():
+                        wish_fulfilled = True
+                        wish_number = wish_idx
+                        student_wish_fulfillment[student_id][slot_idx] = wish_number
+                        student_score += wish_weights.get(wish_number, 0)
+                        logger.debug(f"Student {student_id} got wish {wish_number} for {company_name} in slot {slot_idx}")
                         break
+                
+                if not wish_fulfilled:
+                    logger.debug(f"Student {student_id} didn't have {company_name} in wishes for slot {slot_idx}")
+                    student_wish_fulfillment[student_id][slot_idx] = None
+            
+            # Store the score for this student
+            student_scores[student_id] = student_score
+            total_score += student_score
+            
+            # Calculate max possible score for this student (20 points per session)
+            max_student_score = len(student_assignments[student_id]) * max_score_per_student
+            total_possible_score += max_student_score
+            
+        # Calculate overall score percentage
+        fulfillment_percentage = (total_score / total_possible_score * 100) if total_possible_score > 0 else 0
+        logger.info(f"Overall fulfillment score: {fulfillment_percentage:.2f}% ({total_score}/{total_possible_score})")
         
-    def _calculate_student_fulfillment_scores(self, number_to_company):
-        # Create a mapping from company name to unique_id for easier lookup
-        company_id_map = {}
-        for company in self.companies:
-            company_id_map[company.name.strip()] = company.unique_id
-            company_id_map[str(company)] = company.unique_id
-            company_id_map[company.unique_id] = company.unique_id
-        
-        # First update wish numbers in sessions
+        # Store wish fulfillment in session data
         for (company_id, slot_idx), session in self.schedule.items():
-            if slot_idx == -1:  # Skip excluded companies
+            if slot_idx == -1:  # Skip excluded sessions
                 continue
-            
-            # For each assigned student, find out which wish was fulfilled
-            for student_data in session.students:
-                student_id = student_data["id"]
-                student = next((s for s in self.student_preferences if s.student_id == student_id), None)
                 
-                if not student:
-                    continue
-                    
-                # Find which wish number this was for the student
-                for i, wish in enumerate(student.wishes):
-                    if not wish:
-                        continue
-                    
-                    # Find unique ID for this wish
-                    wish_company_id = None
-                    
-                    try:
-                        # Try numeric wish
-                        wish_num = int(float(str(wish).strip()))
-                        wish_company_id = number_to_company.get(wish_num)
-                    except (ValueError, TypeError):
-                        # Non-numeric wish, treat as company name or ID
-                        wish_str = str(wish).strip()
-                        wish_company_id = company_id_map.get(wish_str)
-                    
-                    # Check if this wish matches the session company
-                    if wish_company_id == company_id:
-                        # Found the matching wish
-                        wish_number = i + 1  # Store wish as 1-indexed
-                        student_data["wish_number"] = wish_number
-                        break
+            for i, student in enumerate(session.students):
+                student_id = student["id"]
+                wish_number = student_wish_fulfillment.get(student_id, {}).get(slot_idx)
+                session.students[i]["wish_number"] = wish_number
         
-        # Calculate fulfillment scores for students
-        for student in self.student_preferences:
-            # Find all companies assigned to this student
-            assigned_company_ids = []
-            for (company_id, slot_idx), session in self.schedule.items():
-                if slot_idx == -1:  # Skip excluded companies
-                    continue
-                if any(s["id"] == student.student_id for s in session.students):
-                    assigned_company_ids.append(company_id)
-            
-            total_score = 0.0
-            for company_id in assigned_company_ids:
-                # Find which wish this company was for the student
-                for i, wish in enumerate(student.wishes):
-                    if not wish:
-                        continue
-                    
-                    # Get company ID from wish
-                    wish_company_id = None
-                    try:
-                        wish_num = int(float(str(wish).strip()))
-                        wish_company_id = number_to_company.get(wish_num)
-                    except (ValueError, TypeError):
-                        wish_str = str(wish).strip()
-                        wish_company_id = company_id_map.get(wish_str)
-                    
-                    if wish_company_id == company_id:
-                        # Found matching wish
-                        weights = [6, 5, 4, 3, 2, 1]
-                        if i < len(weights):
-                            total_score += weights[i]
-                        break
-            
-            max_possible_score = min(len(assigned_company_ids) * 6, sum([6, 5, 4, 3, 2, 1][:len(student.wishes)]))
-            if max_possible_score > 0:
-                student.fulfillment_score = (total_score / max_possible_score) * 100
-            else:
-                student.fulfillment_score = 0.0
-                
+        return fulfillment_percentage
+
     def calculate_overall_fulfillment_score(self) -> float:
-        """Calculate the overall score for how well student wishes were fulfilled"""
+        """
+        Calculate the overall fulfillment score as a percentage of maximum possible score.
+        
+        The score is calculated based on:
+        - Wish 1 = 6 points
+        - Wish 2 = 5 points
+        - Wish 3 = 4 points
+        - Wish 4 = 3 points
+        - Wish 5 = 2 points
+        - Wish 6 = 1 point
+        - No match = 0 points
+        
+        Each student can earn a maximum of 20 points per session.
+        """
         if not self.schedule:
-            return 0
+            return 0.0
+            
+        logger.info("Calculating overall fulfillment score")
         
-        total_students = len(self.student_preferences)
-        if total_students == 0:
-            return 0
+        # Create wish weighting
+        wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
+        max_score_per_session = 20  # Maximum possible score per student per session
         
-        total_slots = len(self.time_slots)
+        # Initialize counters
+        total_score = 0
+        total_students = 0
+        total_sessions = 0
+        wish_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, None: 0}
         
-        # Count how many students got their wishes
-        wish_counts = {i: 0 for i in range(1, 7)}  # 1-6 wish numbers
-        missing_wish_count = 0
-        
+        # Count students in sessions
         for (company_id, slot_idx), session in self.schedule.items():
             if slot_idx == -1:  # Skip excluded companies
                 continue
-            
-            for student in session.students:
-                wish_number = student.get("wish_number", None)
-                if wish_number is not None and 1 <= wish_number <= 6:
-                    wish_counts[wish_number] += 1
-                else:
-                    missing_wish_count += 1
                 
-        # Calculate a weighted score: 
-        # 1st wish = 100%, 2nd = 80%, 3rd = 60%, 4th = 40%, 5th = 20%, 6th = 10%, none = 0%
-        weights = {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4, 5: 0.2, 6: 0.1}
+            for student in session.students:
+                total_students += 1
+                total_sessions += 1
+                wish_number = student.get("wish_number")
+                
+                # Add to wish count
+                wish_counts[wish_number] = wish_counts.get(wish_number, 0) + 1
+                
+                # Add to total score
+                if wish_number is not None:
+                    score = wish_weights.get(wish_number, 0)
+                    total_score += score
         
-        max_possible_score = total_students * total_slots * 1.0  # If everyone gets 1st wish for all slots
-        achieved_score = sum(wish_counts[i] * weights[i] for i in range(1, 7))
+        # Calculate maximum possible score
+        max_possible_score = total_sessions * max_score_per_session
         
-        if max_possible_score == 0:
-            return 0
+        # Calculate percentage
+        fulfillment_percentage = 0.0
+        if max_possible_score > 0:
+            fulfillment_percentage = (total_score / max_possible_score) * 100
+            
+        # Log statistics
+        logger.info(f"Fulfillment score statistics:")
+        logger.info(f"- Total students in sessions: {total_students}")
+        logger.info(f"- Total sessions: {total_sessions}")
+        logger.info(f"- Total actual score: {total_score}")
+        logger.info(f"- Maximum possible score: {max_possible_score}")
+        logger.info(f"- Fulfillment percentage: {fulfillment_percentage:.2f}%")
+        logger.info(f"- Wish distribution: {wish_counts}")
         
-        return (achieved_score / max_possible_score) * 100
+        return fulfillment_percentage
 
     def get_schedule(self) -> Dict[Tuple[str, int], CompanySession]:
         return self.schedule
@@ -734,80 +1074,247 @@ class SchedulerCore:
             )
             self.schedule[(company.unique_id, -1)] = session 
 
-    def debug_room_assignments(self):
-        """Print out the room assignments to debug scheduling issues"""
-        # Create a grid of time slots x rooms
-        room_grid = {room: {i: "---" for i in range(len(self.time_slots))} for room in self.rooms}
+    def debug_room_assignments(self) -> bool:
+        """Validate the generated schedule and check for conflicts"""
+        logger.info("Validating the generated schedule")
         
-        # Fill in the grid with company names
+        valid = True
+        room_schedule = {}
+        student_schedule = {}
+        company_schedule = {}
+        
+        # Collect all assignments
         for (company_id, slot_idx), session in self.schedule.items():
             if slot_idx == -1:  # Skip excluded companies
                 continue
                 
             room = session.room
-            if room in room_grid and slot_idx in room_grid[room]:
-                company_name = session.company.name
-                # Truncate long names
-                if len(company_name) > 20:
-                    company_name = company_name[:17] + "..."
-                room_grid[room][slot_idx] = company_name
-                
-        # Print the grid
-        print("\nRoom Assignment Debug Grid:")
-        print("-" * 80)
-        header = "Room".ljust(15)
-        for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
-            header += f"| {slot_letter} ({time_range}) ".ljust(20)
-        print(header)
-        print("-" * 80)
-        
-        for room in sorted(room_grid.keys()):
-            row = str(room).ljust(15)
-            for slot_idx in range(len(self.time_slots)):
-                row += f"| {room_grid[room][slot_idx]} ".ljust(20)
-            print(row)
-        print("-" * 80)
+            time_slot = slot_idx
             
-        # Check for Polizei in Aula
-        polizei_in_aula = True
-        polizei_elsewhere = False
-        aula_used_by_others = False
-        
-        for (company_id, slot_idx), session in self.schedule.items():
-            if slot_idx == -1:
-                continue
-                
-            is_polizei = "polizei" in session.company.name.lower()
-            in_aula = session.room == "Aula"
+            # Check room conflicts
+            if room not in room_schedule:
+                room_schedule[room] = {}
             
-            if is_polizei and not in_aula:
-                polizei_in_aula = False
-                polizei_elsewhere = True
-                print(f"ERROR: Polizei found in room {session.room} at slot {slot_idx}")
-                
-            if in_aula and not is_polizei:
-                aula_used_by_others = True
-                print(f"ERROR: Aula used by {session.company.name} at slot {slot_idx}")
-                
-        # Check for room conflicts
-        room_conflicts = False
-        room_usage = {}
-        for (company_id, slot_idx), session in self.schedule.items():
-            if slot_idx == -1:
-                continue
-                
-            room_slot = (session.room, slot_idx)
-            if room_slot in room_usage:
-                room_conflicts = True
-                print(f"ERROR: Room conflict in {session.room} at slot {slot_idx} between {room_usage[room_slot]} and {session.company.name}")
+            if time_slot in room_schedule[room]:
+                existing_company = room_schedule[room][time_slot]
+                logger.error(f"CONFLICT: Room {room} double-booked for slot {time_slot}: {existing_company} and {company_id}")
+                valid = False
             else:
-                room_usage[room_slot] = session.company.name
+                room_schedule[room][time_slot] = company_id
+            
+            # Check company conflicts
+            if company_id not in company_schedule:
+                company_schedule[company_id] = {}
                 
-        # Print summary
-        print("\nSchedule Validation Summary:")
-        print(f"Polizei only in Aula: {'✓' if polizei_in_aula and not polizei_elsewhere else '✗'}")
-        print(f"Aula only used by Polizei: {'✓' if not aula_used_by_others else '✗'}")
-        print(f"No room conflicts: {'✓' if not room_conflicts else '✗'}")
-        print(f"Total scheduled sessions: {len([k for k in self.schedule.keys() if k[1] != -1])}")
+            if time_slot in company_schedule[company_id]:
+                existing_room = company_schedule[company_id][time_slot]
+                logger.error(f"CONFLICT: Company {company_id} scheduled in multiple rooms for slot {time_slot}: {existing_room} and {room}")
+                valid = False
+            else:
+                company_schedule[company_id][time_slot] = room
+            
+            # Check student conflicts
+            for student in session.students:
+                student_id = student["id"]
+                
+                if student_id not in student_schedule:
+                    student_schedule[student_id] = {}
+                
+                if time_slot in student_schedule[student_id]:
+                    existing_company = student_schedule[student_id][time_slot]
+                    logger.error(f"CONFLICT: Student {student_id} double-booked for slot {time_slot}: {existing_company} and {company_id}")
+                    valid = False
+                else:
+                    student_schedule[student_id][time_slot] = company_id
         
-        return polizei_in_aula and not polizei_elsewhere and not aula_used_by_others and not room_conflicts 
+        # Check room capacity constraints
+        for (company_id, slot_idx), session in self.schedule.items():
+            if slot_idx == -1:  # Skip excluded companies
+                continue
+                
+            room = session.room
+            company = session.company
+            student_count = len(session.students)
+            
+            # Check room capacity limits
+            room_capacity = self.room_capacities.get(room, 30)
+            if student_count > room_capacity:
+                logger.warning(f"Capacity exceeded: Room {room} (capacity {room_capacity}) has {student_count} students for {company.name}")
+                valid = False
+            
+            # Check company capacity limits
+            if student_count > company.capacity:
+                logger.warning(f"Company capacity exceeded: {company.name} (capacity {company.capacity}) has {student_count} students")
+                valid = False
+        
+        # Print room assignments summary
+        logger.info("Room assignments summary:")
+        for room, slots in room_schedule.items():
+            room_capacity = self.room_capacities.get(room, "unknown")
+            slot_info = ", ".join([f"{self.time_slots[slot][0]}: {company}" for slot, company in sorted(slots.items())])
+            logger.info(f"Room {room} (capacity: {room_capacity}): {slot_info}")
+            
+        # Print summary statistics
+        total_students = sum(len(session.students) for _, session in self.schedule.items() if _ and _[1] != -1)
+        total_student_slots = sum(len(slots) for slots in student_schedule.values())
+        total_company_slots = sum(len(slots) for slots in company_schedule.values())
+        
+        logger.info(f"Schedule statistics:")
+        logger.info(f"- Total rooms used: {len(room_schedule)}")
+        logger.info(f"- Total companies scheduled: {len(company_schedule)}")
+        logger.info(f"- Total students scheduled: {len(student_schedule)}")
+        logger.info(f"- Total student slots filled: {total_student_slots}")
+        logger.info(f"- Total company slots: {total_company_slots}")
+        logger.info(f"- Average students per session: {total_students / total_company_slots if total_company_slots else 0:.2f}")
+        
+        if valid:
+            logger.info("Schedule validation PASSED - No conflicts found")
+        else:
+            logger.error("Schedule validation FAILED - See errors above")
+        
+        return valid 
+
+    def calculate_fulfillment(self):
+        """Calculate the fulfillment of student wishes"""
+        total_students = len(self.student_preferences)
+        if total_students == 0:
+            return {}
+        
+        # Track wish fulfillment statistics
+        wish_stats = {
+            "wish1_fulfilled": 0,
+            "wish2_fulfilled": 0,
+            "wish3_fulfilled": 0,
+            "wish4_fulfilled": 0,
+            "wish5_fulfilled": 0,
+            "no_wish_fulfilled": 0,
+            "students_with_at_least_one_wish": 0,
+            "students_with_top_three_wishes": 0,
+            "students_with_all_five_sessions": 0,
+            "total_wish_fulfillment": 0,
+            "weighted_fulfillment": 0
+        }
+        
+        # Track wish fulfillment per student
+        fulfillment_by_student = {}
+        
+        # Weight for wishes (higher weight for top wishes)
+        wish_weights = {1: 5, 2: 4, 3: 3, 4: 2, 5: 1}
+        
+        # For each student, check if their wishes were fulfilled
+        for student in self.student_preferences:
+            student_id = student.student_id
+            fulfillment_by_student[student_id] = {
+                "name": student.name,
+                "wishes_fulfilled": [],
+                "total_sessions": 0,
+                "fulfillment_score": 0,
+                "weighted_score": 0
+            }
+            
+            wishes_fulfilled = []
+            wishes_by_company = {}
+            
+            # Map each wish to a company ID
+            for wish_idx, wish in enumerate(student.wishes):
+                if not wish:
+                    continue
+                    
+                company_id = self._get_company_id_from_wish(wish)
+                if company_id:
+                    wishes_by_company[company_id] = wish_idx + 1  # 1-indexed
+            
+            # Check each assigned session for this student
+            for (company_id, slot_idx), session in self.schedule.items():
+                for student_data in session.students:
+                    if student_data["id"] == student_id:
+                        fulfillment_by_student[student_id]["total_sessions"] += 1
+                        
+                        # Check if this assignment fulfills a wish
+                        if company_id in wishes_by_company:
+                            wish_number = wishes_by_company[company_id]
+                            wishes_fulfilled.append((company_id, wish_number))
+                            
+                            # For debugging
+                            student_data["wish_number"] = wish_number
+                            
+                            # Update statistics for this wish
+                            wish_key = f"wish{wish_number}_fulfilled"
+                            if wish_key in wish_stats:
+                                wish_stats[wish_key] += 1
+                                
+                            # Calculate weighted score for this wish
+                            if wish_number in wish_weights:
+                                fulfillment_by_student[student_id]["weighted_score"] += wish_weights[wish_number]
+            
+            # Store wishes fulfilled for this student
+            fulfillment_by_student[student_id]["wishes_fulfilled"] = sorted(wishes_fulfilled, key=lambda x: x[1])
+            
+            # Calculate fulfillment score (percentage of wishes fulfilled)
+            fulfilled_count = len(wishes_fulfilled)
+            if fulfilled_count > 0:
+                wish_stats["students_with_at_least_one_wish"] += 1
+                
+                # Check if student has any of their top 3 wishes
+                if any(wish[1] <= 3 for wish in wishes_fulfilled):
+                    wish_stats["students_with_top_three_wishes"] += 1
+                
+                # Calculate as percentage of 5 total possible wishes
+                fulfillment_by_student[student_id]["fulfillment_score"] = (fulfilled_count / 5) * 100
+                wish_stats["total_wish_fulfillment"] += fulfilled_count
+            else:
+                wish_stats["no_wish_fulfilled"] += 1
+                
+            # Calculate weighted score as percentage of maximum possible weighted score
+            max_weighted_score = sum(wish_weights.values())  # 15 for our weights
+            weighted_pct = (fulfillment_by_student[student_id]["weighted_score"] / max_weighted_score) * 100
+            fulfillment_by_student[student_id]["weighted_fulfillment"] = weighted_pct
+            wish_stats["weighted_fulfillment"] += weighted_pct
+            
+            # Check if student has all 5 sessions
+            if fulfillment_by_student[student_id]["total_sessions"] == 5:
+                wish_stats["students_with_all_five_sessions"] += 1
+        
+        # Calculate overall statistics
+        if total_students > 0:
+            total_possible_wishes = total_students * 5
+            wish_stats["fulfillment_percentage"] = (wish_stats["total_wish_fulfillment"] / total_possible_wishes) * 100
+            wish_stats["students_with_at_least_one_wish_pct"] = (wish_stats["students_with_at_least_one_wish"] / total_students) * 100
+            wish_stats["students_with_top_three_wishes_pct"] = (wish_stats["students_with_top_three_wishes"] / total_students) * 100
+            wish_stats["students_with_all_five_sessions_pct"] = (wish_stats["students_with_all_five_sessions"] / total_students) * 100
+            wish_stats["average_weighted_fulfillment"] = wish_stats["weighted_fulfillment"] / total_students
+        
+        # Return all statistics
+        return {
+            "overall_stats": wish_stats,
+            "by_student": fulfillment_by_student
+        }
+        
+    def _get_company_id_from_wish(self, wish):
+        """Helper method to get company ID from a student wish"""
+        if not wish:
+            return None
+            
+        # Try to map wish to company ID
+        try:
+            # If wish is a number, it might be a company number
+            wish_num = int(float(str(wish).strip()))
+            # Look for company with this number as name
+            for company in self.companies:
+                if str(wish_num) == company.name.strip():
+                    return company.unique_id
+                    
+            # Otherwise check if it's a company number in the mapping
+            if hasattr(self, 'number_to_company') and wish_num in self.number_to_company:
+                name = self.number_to_company[wish_num]
+                for company in self.companies:
+                    if name.strip() == company.name.strip():
+                        return company.unique_id
+        except (ValueError, TypeError):
+            # If wish is not a number, it might be a company name
+            wish_str = str(wish).strip()
+            for company in self.companies:
+                if wish_str == company.name.strip():
+                    return company.unique_id
+                    
+        return None 

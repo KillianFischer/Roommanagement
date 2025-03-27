@@ -69,6 +69,13 @@ class Scheduler:
                     if slot_letter in ["A", "B", "C", "D", "E"]:
                         earliest_slot = ord(slot_letter) - ord("A")
                 
+                # Check for special companies that need fixed rooms
+                fixed_room = None
+                if "finanzamt" in name.lower():
+                    # The exact room will be determined when rooms are loaded
+                    # For now, we'll just mark that this company needs special handling
+                    fixed_room = "finanzamt"  # This is a placeholder that will be replaced
+                
                 companies.append(
                     Company(
                         name=name,
@@ -76,6 +83,7 @@ class Scheduler:
                         capacity=max_participants,
                         min_participants=min_participants,
                         earliest_slot=earliest_slot,
+                        fixed_room=fixed_room,
                     )
                 )
             
@@ -124,47 +132,114 @@ class Scheduler:
         if not self.core.schedule:
             return 0
         
-        total_students = len(self.core.student_preferences)
-        if total_students == 0:
+        # Get the fulfillment statistics from the core scheduler
+        fulfillment_data = self.core.calculate_fulfillment()
+        if not fulfillment_data or "overall_stats" not in fulfillment_data:
             return 0
+            
+        # Return the average weighted fulfillment percentage
+        return fulfillment_data["overall_stats"].get("average_weighted_fulfillment", 0)
         
-        total_slots = len(self.time_slots)
+    def get_student_fulfillment_scores(self) -> pd.DataFrame:
+        """Get detailed fulfillment scores for each student"""
+        if not self.core.schedule:
+            return pd.DataFrame()
+            
+        # Get fulfillment data from the core
+        fulfillment_data = self.core.calculate_fulfillment()
+        if not fulfillment_data or "by_student" not in fulfillment_data:
+            return pd.DataFrame()
+            
+        # Extract student fulfillment details
+        student_data = []
         
-        # Count how many students got their wishes
-        wish_counts = {i: 0 for i in range(1, 7)}  # 1-6 wish numbers
-        missing_wish_count = 0
+        for student_id, data in fulfillment_data["by_student"].items():
+            # Calculate weighted fulfillment percentage
+            weighted_pct = data.get("weighted_fulfillment", 0)
+            
+            # Count wishes by rank
+            wish_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, None: 0}
+            for _, wish_number in data.get("wishes_fulfilled", []):
+                if wish_number in wish_counts:
+                    wish_counts[wish_number] += 1
+                
+            # Prepare record for DataFrame
+            record = {
+                "Student ID": student_id,
+                "Name": data.get("name", ""),
+                "Total Score": data.get("weighted_score", 0),
+                "Max Score": 15,  # Maximum possible weight sum (5+4+3+2+1)
+                "Fulfillment %": round(weighted_pct, 2),
+                "1st Wishes": wish_counts.get(1, 0),
+                "2nd Wishes": wish_counts.get(2, 0),
+                "3rd Wishes": wish_counts.get(3, 0),
+                "4th Wishes": wish_counts.get(4, 0),
+                "5th Wishes": wish_counts.get(5, 0),
+                "No Match": data.get("total_sessions", 0) - len(data.get("wishes_fulfilled", [])),
+            }
+            
+            # Add schedule for each time slot
+            student_schedule = self.get_student_schedule(student_id)
+            for slot_letter, _ in self.time_slots:
+                slot_entry = next((e for e in student_schedule if e[0] == slot_letter), None)
+                if slot_entry:
+                    record[f"Slot {slot_letter}"] = slot_entry[2]  # Company name
+                    record[f"Wish {slot_letter}"] = slot_entry[4]  # Wish number
+                else:
+                    record[f"Slot {slot_letter}"] = ""
+                    record[f"Wish {slot_letter}"] = ""
+                
+            student_data.append(record)
+            
+        # Create DataFrame
+        df = pd.DataFrame(student_data)
         
+        # Add overall statistics
+        if len(df) > 0:
+            overall_stats = fulfillment_data["overall_stats"]
+            print(f"Overall weighted fulfillment: {overall_stats.get('average_weighted_fulfillment', 0):.2f}%")
+            print(f"Students with at least one wish: {overall_stats.get('students_with_at_least_one_wish_pct', 0):.2f}%")
+            print(f"Students with top three wishes: {overall_stats.get('students_with_top_three_wishes_pct', 0):.2f}%")
+            
+        return df
+        
+    def get_student_schedule(self, student_id):
+        """Get the schedule for a specific student"""
+        if not self.core.schedule:
+            return []
+            
+        schedule = []
         for (company_id, slot_idx), session in self.core.schedule.items():
             if slot_idx == -1:  # Skip excluded companies
                 continue
-            
-            for student in session.students:
-                wish_number = student.get("wish_number", None)
-                # Check if wish_number is an integer or can be converted to one
-                try:
-                    if wish_number is not None:
-                        wish_number = int(wish_number)
-                        if 1 <= wish_number <= 6:
-                            wish_counts[wish_number] += 1
-                        else:
-                            missing_wish_count += 1
-                    else:
-                        missing_wish_count += 1
-                except (ValueError, TypeError):
-                    # If wish_number is "-" or some other non-numeric value
-                    missing_wish_count += 1
                 
-        # Calculate a weighted score: 
-        # 1st wish = 100%, 2nd = 80%, 3rd = 60%, 4th = 40%, 5th = 20%, 6th = 10%, none = 0%
-        weights = {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4, 5: 0.2, 6: 0.1}
+            # Check if this student is in this session
+            for student_info in session.students:
+                if student_info["id"] == student_id:
+                    # Get wish number if available
+                    wish_number = student_info.get("wish_number", "-")
+                    
+                    # Get time slot info
+                    slot_letter, time_range = self.time_slots[slot_idx]
+                    
+                    schedule.append((
+                        slot_letter,
+                        time_range,
+                        session.company.name,
+                        session.room,
+                        wish_number
+                    ))
+                    break
+                    
+        # Sort by time slot
+        return sorted(schedule, key=lambda x: x[0])
         
-        max_possible_score = total_students * total_slots * 1.0  # If everyone gets 1st wish for all slots
-        achieved_score = sum(wish_counts[i] * weights[i] for i in range(1, 7))
-        
-        if max_possible_score == 0:
-            return 0
-        
-        return (achieved_score / max_possible_score) * 100
+    def get_fulfillment_statistics(self):
+        """Get statistics on wish fulfillment"""
+        if not self.core.schedule:
+            return {}
+            
+        return self.core.calculate_fulfillment()["overall_stats"]
 
     def export_student_schedules_pdf(self, filepath: str) -> bool:
         """Export student schedules as PDF"""
@@ -566,7 +641,7 @@ class Scheduler:
 
 class Company:
     def __init__(
-        self, name, field="", capacity=0, min_participants=0, earliest_slot=0, blocked_slots=None
+        self, name, field="", capacity=0, min_participants=0, earliest_slot=0, blocked_slots=None, fixed_room=None
     ):
         self.name = name
         self.field = field
@@ -574,6 +649,7 @@ class Company:
         self.min_participants = min_participants
         self.earliest_slot = earliest_slot
         self.blocked_slots = blocked_slots or []
+        self.fixed_room = fixed_room  # Allow specifying a fixed room for certain companies
         # Create a unique identifier that combines name and field
         self.unique_id = f"{name}_{field}" if field else name
         self.always_show_field = False  # Flag to always show field in display name

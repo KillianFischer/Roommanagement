@@ -1,7 +1,8 @@
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 import os
 import tempfile
+import pandas as pd
 
 
 class ExportsTab:
@@ -9,6 +10,7 @@ class ExportsTab:
         self.parent = parent
         self.scheduler = scheduler
         self.app = app
+        self._on_mousewheel = on_mousewheel
         
         self.export_frame = ttk.Frame(parent)
         parent.add(self.export_frame, text="Exportieren")
@@ -22,6 +24,9 @@ class ExportsTab:
         
         # Attendance Lists tab
         self._setup_attendance_lists_tab()
+        
+        # Fulfillment Report tab
+        self._setup_fulfillment_tab()
 
         # export frame grid
         self.export_frame.columnconfigure(0, weight=1)
@@ -474,3 +479,457 @@ class ExportsTab:
                     os.remove(temp_filepath)
             except:
                 pass 
+
+    def _setup_fulfillment_tab(self):
+        """Set up the tab for displaying fulfillment score reports"""
+        self.fulfillment_frame = ttk.Frame(self.export_notebook)
+        self.export_notebook.add(self.fulfillment_frame, text="Erfüllungsgrad")
+        
+        # Button frame at the top
+        button_frame = ttk.Frame(self.fulfillment_frame)
+        button_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+        
+        ttk.Button(
+            button_frame,
+            text="Aktualisieren",
+            command=self._refresh_fulfillment_display,
+        ).grid(row=0, column=0, pady=5, padx=5, sticky="w")
+        
+        ttk.Button(
+            button_frame,
+            text="Als Excel exportieren",
+            command=self._export_fulfillment_excel,
+        ).grid(row=0, column=1, pady=5, padx=5, sticky="e")
+        
+        # Configure button frame
+        button_frame.columnconfigure(0, weight=1)
+        button_frame.columnconfigure(1, weight=1)
+        
+        # Informational text
+        info_frame = ttk.Frame(self.fulfillment_frame, padding=10)
+        info_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+        
+        ttk.Label(
+            info_frame,
+            text="Der Erfüllungsbericht zeigt, wie gut die Wünsche der Schüler erfüllt wurden.",
+            font=("Helvetica", 11),
+            wraplength=600,
+        ).grid(row=0, column=0, sticky="w")
+        
+        ttk.Label(
+            info_frame,
+            text="Punkteverteilung für Wünsche:",
+            font=("Helvetica", 11, "bold"),
+        ).grid(row=1, column=0, sticky="w", pady=(10, 5))
+        
+        points_text = (
+            "1. Wunsch: 5 Punkte\n"
+            "2. Wunsch: 4 Punkte\n"
+            "3. Wunsch: 3 Punkte\n"
+            "4. Wunsch: 2 Punkte\n"
+            "5. Wunsch: 1 Punkt\n"
+            "Kein Wunsch: 0 Punkte"
+        )
+        
+        ttk.Label(
+            info_frame,
+            text=points_text,
+            font=("Helvetica", 11),
+            justify="left",
+        ).grid(row=2, column=0, sticky="w")
+        
+        ttk.Label(
+            info_frame,
+            text="Der Gesamterfüllungsgrad berechnet sich aus der Summe aller erzielten Punkte\n"
+            "geteilt durch die maximal mögliche Punktzahl (15 pro Schüler).",
+            font=("Helvetica", 11),
+            justify="left",
+        ).grid(row=3, column=0, sticky="w", pady=(10, 0))
+        
+        # Create a frame to contain all statistics
+        self.stats_container = ttk.Frame(self.fulfillment_frame)
+        self.stats_container.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+        
+        # Score display
+        self.score_frame = ttk.LabelFrame(self.stats_container, text="Aktueller Erfüllungsgrad", padding=10)
+        self.score_frame.pack(fill="x", pady=5)
+        
+        # Calculate and display the current score
+        fulfillment_score = self.scheduler.calculate_overall_fulfillment_score()
+        
+        self.score_label = ttk.Label(
+            self.score_frame,
+            text=f"{fulfillment_score:.2f}%",
+            font=("Helvetica", 16, "bold"),
+        )
+        self.score_label.pack(anchor="w")
+        
+        # Statistics frames - will be populated when refreshed
+        self.wish_frame = ttk.LabelFrame(self.stats_container, text="Erfüllte Wünsche", padding=10)
+        self.wish_frame.pack(fill="x", pady=5)
+        
+        self.student_frame = ttk.LabelFrame(self.stats_container, text="Schülerstatistik", padding=10)
+        self.student_frame.pack(fill="x", pady=5)
+        
+        # Frame for student table
+        self.table_frame = ttk.Frame(self.fulfillment_frame)
+        self.table_frame.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+        
+        # Create a scrollable frame for the student table
+        self.student_table_canvas = tk.Canvas(self.table_frame)
+        self.student_table_scrollbar = ttk.Scrollbar(
+            self.table_frame, orient="vertical", command=self.student_table_canvas.yview
+        )
+        self.student_table = ttk.Frame(self.student_table_canvas)
+        
+        # Configure canvas
+        self.student_table_canvas.configure(yscrollcommand=self.student_table_scrollbar.set)
+        self.student_table_canvas.bind(
+            "<Configure>",
+            lambda e: self.student_table_canvas.configure(scrollregion=self.student_table_canvas.bbox("all"))
+        )
+        self.student_table_canvas.create_window((0, 0), window=self.student_table, anchor="nw")
+        
+        # Enable mousewheel scrolling
+        self.student_table_canvas.bind_all(
+            "<MouseWheel>", lambda event: self._on_mousewheel(event, self.student_table_canvas)
+        )
+        
+        # Grid layout for canvas and scrollbar
+        self.student_table_canvas.grid(row=0, column=0, sticky="nsew")
+        self.student_table_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.table_frame.columnconfigure(0, weight=1)
+        self.table_frame.rowconfigure(0, weight=1)
+        
+        # Configure weights for fulfillment frame
+        self.fulfillment_frame.columnconfigure(0, weight=1)
+        self.fulfillment_frame.rowconfigure(3, weight=1)  # Make the table expandable
+        
+        # Initialize the display
+        self._refresh_fulfillment_display()
+
+    def _refresh_fulfillment_display(self):
+        """Refresh the fulfillment statistics display"""
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+            
+        # Update the score
+        fulfillment_score = self.scheduler.calculate_overall_fulfillment_score()
+        self.score_label.config(text=f"{fulfillment_score:.2f}%")
+        
+        # Get statistics
+        stats = self.scheduler.get_fulfillment_statistics()
+        student_df = self.scheduler.get_student_fulfillment_scores()
+        
+        # Clear existing widgets in statistics frames
+        for widget in self.wish_frame.winfo_children():
+            widget.destroy()
+        
+        for widget in self.student_frame.winfo_children():
+            widget.destroy()
+            
+        for widget in self.student_table.winfo_children():
+            widget.destroy()
+        
+        # Populate wish statistics
+        wish_counts = [
+            ("1. Wunsch", stats.get("wish1_fulfilled", 0)),
+            ("2. Wunsch", stats.get("wish2_fulfilled", 0)),
+            ("3. Wunsch", stats.get("wish3_fulfilled", 0)),
+            ("4. Wunsch", stats.get("wish4_fulfilled", 0)),
+            ("5. Wunsch", stats.get("wish5_fulfilled", 0)),
+            ("Kein Wunsch", stats.get("no_wish_fulfilled", 0))
+        ]
+        
+        for i, (label, count) in enumerate(wish_counts):
+            ttk.Label(
+                self.wish_frame,
+                text=f"{label}: {count}",
+                font=("Helvetica", 10)
+            ).grid(row=i, column=0, sticky="w", padx=5, pady=2)
+        
+        # Populate student statistics
+        student_stats = [
+            ("Gesamtanzahl Schüler", stats.get("total_students", 0)),
+            ("Schüler mit mind. einem Wunsch", 
+             f"{stats.get('students_with_at_least_one_wish', 0)} ({stats.get('students_with_at_least_one_wish_pct', 0):.1f}%)"),
+            ("Schüler mit Top-3 Wunsch", 
+             f"{stats.get('students_with_top_three_wishes', 0)} ({stats.get('students_with_top_three_wishes_pct', 0):.1f}%)"),
+            ("Schüler mit allen Slots", 
+             f"{stats.get('students_with_all_five_sessions', 0)} ({stats.get('students_with_all_five_sessions_pct', 0):.1f}%)")
+        ]
+        
+        for i, (label, value) in enumerate(student_stats):
+            ttk.Label(
+                self.student_frame,
+                text=f"{label}: {value}",
+                font=("Helvetica", 10)
+            ).grid(row=i, column=0, sticky="w", padx=5, pady=2)
+        
+        # Populate student table
+        if not student_df.empty:
+            # Table headers
+            headers = ["ID", "Name", "Erfüllung %", "1.", "2.", "3.", "4.", "5.", "Keine"]
+            
+            # Create header row
+            for col, header in enumerate(headers):
+                ttk.Label(
+                    self.student_table,
+                    text=header,
+                    font=("Helvetica", 10, "bold")
+                ).grid(row=0, column=col, padx=5, pady=5, sticky="w")
+            
+            # Add student rows
+            for i, (_, row) in enumerate(student_df.iterrows(), 1):
+                ttk.Label(
+                    self.student_table,
+                    text=row["Student ID"],
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=0, padx=5, pady=2, sticky="w")
+                
+                ttk.Label(
+                    self.student_table,
+                    text=row["Name"],
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=1, padx=5, pady=2, sticky="w")
+                
+                ttk.Label(
+                    self.student_table,
+                    text=f"{row['Fulfillment %']:.1f}%",
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=2, padx=5, pady=2, sticky="w")
+                
+                # Wish counts
+                ttk.Label(
+                    self.student_table,
+                    text=str(row["1st Wishes"]),
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=3, padx=5, pady=2, sticky="w")
+                
+                ttk.Label(
+                    self.student_table,
+                    text=str(row["2nd Wishes"]),
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=4, padx=5, pady=2, sticky="w")
+                
+                ttk.Label(
+                    self.student_table,
+                    text=str(row["3rd Wishes"]),
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=5, padx=5, pady=2, sticky="w")
+                
+                ttk.Label(
+                    self.student_table,
+                    text=str(row["4th Wishes"]),
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=6, padx=5, pady=2, sticky="w")
+                
+                ttk.Label(
+                    self.student_table,
+                    text=str(row["5th Wishes"]),
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=7, padx=5, pady=2, sticky="w")
+                
+                ttk.Label(
+                    self.student_table,
+                    text=str(row["No Match"]),
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=8, padx=5, pady=2, sticky="w")
+                
+                # Add alternating row colors
+                if i % 2 == 0:
+                    for col in range(len(headers)):
+                        self.student_table.grid_columnconfigure(col, weight=1)
+        else:
+            ttk.Label(
+                self.student_table,
+                text="Keine Daten verfügbar. Bitte generieren Sie zuerst einen Zeitplan.",
+                font=("Helvetica", 10)
+            ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+
+    def _export_fulfillment_excel(self):
+        """Export the fulfillment report to Excel"""
+        try:
+            if not self.scheduler.get_schedule():
+                messagebox.showinfo("Information", "Bitte generieren Sie zuerst einen Zeitplan.")
+                return
+            
+            # Get fulfillment data
+            stats = self.scheduler.get_fulfillment_statistics()
+            student_df = self.scheduler.get_student_fulfillment_scores()
+            
+            if student_df.empty:
+                messagebox.showinfo("Information", "Keine Daten für einen Erfüllungsbericht verfügbar.")
+                return
+            
+            # Get file path
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx")],
+                title="Export Fulfillment Report"
+            )
+            
+            if not file_path:
+                return
+            
+            # Create Excel file
+            with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                # Export the detailed student DataFrame
+                student_df.to_excel(writer, sheet_name="Schülerdetails", index=False)
+                
+                # Create a summary sheet
+                summary_data = {
+                    "Wunsch": ["1. Wunsch", "2. Wunsch", "3. Wunsch", "4. Wunsch", "5. Wunsch", "Kein Wunsch"],
+                    "Anzahl": [
+                        stats.get("wish1_fulfilled", 0),
+                        stats.get("wish2_fulfilled", 0),
+                        stats.get("wish3_fulfilled", 0),
+                        stats.get("wish4_fulfilled", 0),
+                        stats.get("wish5_fulfilled", 0),
+                        stats.get("no_wish_fulfilled", 0)
+                    ],
+                    "Gewichtung": [5, 4, 3, 2, 1, 0],
+                    "Punkte": [
+                        5 * stats.get("wish1_fulfilled", 0),
+                        4 * stats.get("wish2_fulfilled", 0),
+                        3 * stats.get("wish3_fulfilled", 0), 
+                        2 * stats.get("wish4_fulfilled", 0),
+                        1 * stats.get("wish5_fulfilled", 0),
+                        0
+                    ]
+                }
+                
+                summary_df = pd.DataFrame(summary_data)
+                
+                # Add totals
+                total_points = sum(summary_data["Punkte"])
+                total_wishes = sum(summary_data["Anzahl"])
+                summary_df.loc["Total"] = ["Gesamt", total_wishes, "", total_points]
+                
+                # Add the overall statistics
+                summary_df2 = pd.DataFrame({
+                    "Metrik": [
+                        "Gesamterfüllungsgrad (gewichtet)", 
+                        "Schüler mit mindestens einem Wunsch",
+                        "Schüler mit einem Top-3 Wunsch",
+                        "Schüler mit allen 5 Zeitslots",
+                        "Anzahl Schüler gesamt"
+                    ],
+                    "Wert": [
+                        f"{stats.get('average_weighted_fulfillment', 0):.2f}%",
+                        f"{stats.get('students_with_at_least_one_wish_pct', 0):.2f}% ({stats.get('students_with_at_least_one_wish', 0)} von {stats.get('total_students', 0)})",
+                        f"{stats.get('students_with_top_three_wishes_pct', 0):.2f}% ({stats.get('students_with_top_three_wishes', 0)} von {stats.get('total_students', 0)})",
+                        f"{stats.get('students_with_all_five_sessions_pct', 0):.2f}% ({stats.get('students_with_all_five_sessions', 0)} von {stats.get('total_students', 0)})",
+                        str(stats.get('total_students', 0))
+                    ]
+                })
+                
+                # Export summaries
+                summary_df.to_excel(writer, sheet_name="Zusammenfassung", index=False, startrow=0)
+                summary_df2.to_excel(writer, sheet_name="Zusammenfassung", index=False, startrow=len(summary_df) + 3)
+                
+            messagebox.showinfo("Information", f"Erfüllungsbericht wurde nach {file_path} exportiert.")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Fehler beim Exportieren: {str(e)}")
+            
+    def _refresh_fulfillment_score(self):
+        """Refresh just the fulfillment score (called from the Refresh button)"""
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+            
+        fulfillment_score = self.scheduler.calculate_overall_fulfillment_score()
+        self.score_label.config(text=f"{fulfillment_score:.2f}%")
+
+    def setup_ui(self):
+        self.exports_frame = ttk.Frame(self, padding="10")
+        self.exports_frame.grid(row=0, column=0, sticky="nsew")
+
+        # Instructions label
+        ttk.Label(
+            self.exports_frame,
+            text="Nachdem der Zeitplan generiert wurde, können Sie verschiedene Exporte erstellen:",
+            font=("Helvetica", 12),
+        ).grid(row=0, column=0, columnspan=4, pady=10, sticky="w")
+
+        # Buttons frame
+        buttons_frame = ttk.Frame(self.exports_frame, padding="5")
+        buttons_frame.grid(row=1, column=0, columnspan=4, pady=10, sticky="w")
+
+        # Export buttons
+        ttk.Button(
+            buttons_frame,
+            text="Schüler-Zeitpläne (PDF)",
+            command=self.export_student_schedules,
+            width=25,
+        ).grid(row=0, column=0, padx=5, pady=5)
+
+        ttk.Button(
+            buttons_frame,
+            text="Unternehmen-Zeitpläne (PDF)",
+            command=self.export_company_schedules,
+            width=25,
+        ).grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Button(
+            buttons_frame,
+            text="Anwesenheitslisten (Excel)",
+            command=self.export_attendance_lists,
+            width=25,
+        ).grid(row=0, column=2, padx=5, pady=5)
+        
+        ttk.Button(
+            buttons_frame,
+            text="Raumbelegungsplan (PDF)",
+            command=self.export_room_schedule,
+            width=25,
+        ).grid(row=1, column=0, padx=5, pady=5)
+        
+        ttk.Button(
+            buttons_frame,
+            text="Erfüllungsbericht (Ansicht)",
+            command=self._refresh_fulfillment_display,
+            width=25,
+        ).grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Button(
+            buttons_frame,
+            text="Komplett-Export (ZIP)",
+            command=self.export_all,
+            width=25,
+        ).grid(row=1, column=2, padx=5, pady=5)
+
+        # Results display - add a treeview to show export preview
+        self.results_frame = ttk.LabelFrame(self.exports_frame, text="Vorschau", padding="10")
+        self.results_frame.grid(row=2, column=0, columnspan=4, sticky="nsew", pady=10)
+        self.exports_frame.rowconfigure(2, weight=1)
+        self.exports_frame.columnconfigure(0, weight=1)
+
+        # Create a canvas with scrollbar for the preview
+        self.canvas = tk.Canvas(self.results_frame)
+        self.scrollbar = ttk.Scrollbar(
+            self.results_frame, orient="vertical", command=self.canvas.yview
+        )
+        self.preview_frame = ttk.Frame(self.canvas)
+
+        # Configure canvas
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
+        )
+        self.canvas.create_window((0, 0), window=self.preview_frame, anchor="nw")
+
+        # Enable mousewheel scrolling
+        self.canvas.bind_all(
+            "<MouseWheel>", lambda event: self._on_mousewheel(event, self.canvas)
+        )
+
+        # Grid layout for canvas and scrollbar
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.scrollbar.grid(row=0, column=1, sticky="ns")
+        self.results_frame.columnconfigure(0, weight=1)
+        self.results_frame.rowconfigure(0, weight=1) 
