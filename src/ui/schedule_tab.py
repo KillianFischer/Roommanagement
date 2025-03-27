@@ -95,28 +95,40 @@ class ScheduleTab:
         
         # Get company data from scheduler
         schedule = self.scheduler.get_schedule()
-        companies = [c for c in self.scheduler.core.companies if (c.name, -1) not in schedule]
-
+        
+        # Get all companies with their fields to display properly
+        companies = self.scheduler.core.companies
+        
+        # Group schedule by company ID (which includes field)
+        company_sessions = {}
+        for (company_id, slot_idx), session in schedule.items():
+            if company_id not in company_sessions:
+                company_sessions[company_id] = {}
+            company_sessions[company_id][slot_idx] = session
+        
+        # Display companies in the tree
         for idx, company in enumerate(companies):
-            row = [company.name]
+            # Skip companies that have been excluded
+            if any((company.unique_id, -1) in schedule for company in companies):
+                continue
+                
+            # Get the display name with field info
+            display_name = str(company)
+            
+            row = [display_name]
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
                 if slot_idx < company.earliest_slot or slot_idx in company.blocked_slots:
                     text = "---"
                 else:
-                    session = schedule.get((company.name, slot_idx))
+                    session = schedule.get((company.unique_id, slot_idx))
                     if session:
-                        count = len(session.students)
-                        capacity = session.company.capacity
-                        
-                        sessions_for_company = [s for (c, _), s in schedule.items() if c == company.name]
-                        
-                        if len(sessions_for_company) > 1:
-                            text = f"Raum {session.room}"
-                        else:
-                            text = f"Raum {session.room}"
+                        # Show room information
+                        text = f"Raum {session.room}"
                     else:
                         text = "---"
                 row.append(text)
+                
+            # Add the row to the tree
             self.schedule_tree.insert("", tk.END, values=row, tags=("evenrow" if idx % 2 == 0 else "oddrow"))
             
     def export_schedule(self):
@@ -140,7 +152,7 @@ class ScheduleTab:
             # Get file path from user
             filepath = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
             if not filepath:
-                return
+                return  # User cancelled the dialog, do nothing
 
             # Create PDF
             doc = SimpleDocTemplate(
@@ -187,35 +199,24 @@ class ScheduleTab:
             
             # Group sessions by company
             company_sessions = {}
-            for (company_name, slot_idx), session in self.scheduler.schedule.items():
-                if company_name not in company_sessions:
-                    company_sessions[company_name] = []
-                company_sessions[company_name].append((slot_idx, session))
+            for (company_id, slot_idx), session in self.scheduler.schedule.items():
+                if company_id not in company_sessions:
+                    company_sessions[company_id] = []
+                company_sessions[company_id].append((slot_idx, session))
             
             for company in self.scheduler.companies:
-                row = [company.name]
-                company_name = company.name.strip()
-                total_interest = all_wish_counts.get(company_name, 0)
+                display_name = str(company)
+                row = [display_name]
                 
                 for slot_idx, _ in enumerate(time_slots):
                     if slot_idx < company.earliest_slot:
                         text = "---"
                     else:
-                        session = self.scheduler.schedule.get((company.name, slot_idx))
+                        session = self.scheduler.schedule.get((company.unique_id, slot_idx))
                         if session:
                             count = len(session.students)
                             capacity = session.company.capacity
-                            
-                            # Check if this company has multiple sessions
-                            sessions_for_company = [s for (c, _), s in self.scheduler.schedule.items() if c == company.name]
-                            
-                            if len(sessions_for_company) > 1:
-                                # For companies with multiple sessions, show the actual count
-                                # We'll rely on the scheduler to distribute students evenly
-                                text = f"Raum {session.room}"
-                            else:
-                                # For companies with a single session, show the actual count
-                                text = f"Raum {session.room}"
+                            text = f"Raum {session.room}"
                         else:
                             text = "---"
                     row.append(text)

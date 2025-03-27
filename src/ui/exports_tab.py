@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog
 import os
+import tempfile
 
 
 class ExportsTab:
@@ -30,19 +31,28 @@ class ExportsTab:
         self.student_schedules_frame = ttk.Frame(self.export_notebook)
         self.export_notebook.add(self.student_schedules_frame, text="Schülerzeitpläne")
 
+        # Button frame at the top
+        button_frame = ttk.Frame(self.student_schedules_frame)
+        button_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+        
         ttk.Button(
-            self.student_schedules_frame,
+            button_frame,
             text="Vorschau",
             command=self.preview_student_schedules,
-        ).grid(row=0, column=0, pady=5, padx=5)
+        ).grid(row=0, column=0, pady=5, padx=5, sticky="w")
+        
         ttk.Button(
-            self.student_schedules_frame,
+            button_frame,
             text="Als PDF exportieren",
             command=self.export_student_schedules,
-        ).grid(row=0, column=1, pady=5, padx=5)
+        ).grid(row=0, column=1, pady=5, padx=5, sticky="e")
+        
+        # Configure button frame
+        button_frame.columnconfigure(0, weight=1)
+        button_frame.columnconfigure(1, weight=1)
 
-        # canvas and scrollbar for the preview
-        self.student_preview_canvas = tk.Canvas(self.student_schedules_frame)
+        # Canvas and scrollbar for the preview - take full width
+        self.student_preview_canvas = tk.Canvas(self.student_schedules_frame, width=800)
         self.student_preview_scrollbar = ttk.Scrollbar(
             self.student_schedules_frame,
             orient="vertical",
@@ -60,35 +70,55 @@ class ExportsTab:
             lambda e: self.app._on_mousewheel(e, self.student_preview_canvas),
         )
 
+        # Position canvas and scrollbar - canvas takes full width
         self.student_preview_canvas.grid(
-            row=1, column=0, columnspan=2, sticky="nsew", padx=5, pady=5
+            row=1, column=0, sticky="nsew", padx=5, pady=5
         )
-        self.student_preview_scrollbar.grid(row=1, column=2, sticky="ns")
+        self.student_preview_scrollbar.grid(row=1, column=1, sticky="ns", pady=5)
+        
+        # Create window inside canvas that fills the width
         self.student_preview_canvas.create_window(
-            (0, 0), window=self.student_preview_frame, anchor="nw"
+            (0, 0), window=self.student_preview_frame, anchor="nw", width=self.student_preview_canvas.winfo_width()
         )
 
+        # Configure weight for full expansion
         self.student_schedules_frame.rowconfigure(1, weight=1)
         self.student_schedules_frame.columnconfigure(0, weight=1)
-        self.student_schedules_frame.columnconfigure(1, weight=1)
+        
+        # Bind to configure event to adjust the window width when canvas changes size
+        self.student_preview_canvas.bind('<Configure>', self._on_canvas_configure)
+        
+    def _on_canvas_configure(self, event):
+        # Update the width of the window to match the canvas width
+        width = event.width - 10  # A little less than full width to prevent horizontal scrollbar
+        self.student_preview_canvas.itemconfigure(self.student_preview_canvas.find_all()[0], width=width)
         
     def _setup_attendance_lists_tab(self):
         self.attendance_lists_frame = ttk.Frame(self.export_notebook)
         self.export_notebook.add(self.attendance_lists_frame, text="Anwesenheitslisten")
 
+        # Button frame at the top
+        button_frame = ttk.Frame(self.attendance_lists_frame)
+        button_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+        
         ttk.Button(
-            self.attendance_lists_frame,
+            button_frame,
             text="Vorschau",
             command=self.preview_attendance_lists,
-        ).grid(row=0, column=0, pady=5, padx=5)
+        ).grid(row=0, column=0, pady=5, padx=5, sticky="w")
+        
         ttk.Button(
-            self.attendance_lists_frame,
+            button_frame,
             text="Als PDF exportieren",
             command=self.export_attendance_lists,
-        ).grid(row=0, column=1, pady=5, padx=5)
+        ).grid(row=0, column=1, pady=5, padx=5, sticky="e")
+        
+        # Configure button frame
+        button_frame.columnconfigure(0, weight=1)
+        button_frame.columnconfigure(1, weight=1)
 
-        # canvas and scrollbar for the preview
-        self.attendance_preview_canvas = tk.Canvas(self.attendance_lists_frame)
+        # Canvas and scrollbar for the preview - take full width
+        self.attendance_preview_canvas = tk.Canvas(self.attendance_lists_frame, width=800)
         self.attendance_preview_scrollbar = ttk.Scrollbar(
             self.attendance_lists_frame,
             orient="vertical",
@@ -106,17 +136,29 @@ class ExportsTab:
             lambda e: self.app._on_mousewheel(e, self.attendance_preview_canvas),
         )
 
+        # Position canvas and scrollbar - canvas takes full width
         self.attendance_preview_canvas.grid(
-            row=1, column=0, columnspan=2, sticky="nsew", padx=5, pady=5
+            row=1, column=0, sticky="nsew", padx=5, pady=5
         )
-        self.attendance_preview_scrollbar.grid(row=1, column=2, sticky="ns")
+        self.attendance_preview_scrollbar.grid(row=1, column=1, sticky="ns", pady=5)
+        
+        # Create window inside canvas that fills the width
         self.attendance_preview_canvas.create_window(
-            (0, 0), window=self.attendance_preview_frame, anchor="nw"
+            (0, 0), window=self.attendance_preview_frame, anchor="nw", width=self.attendance_preview_canvas.winfo_width()
         )
 
+        # Configure weight for full expansion
         self.attendance_lists_frame.rowconfigure(1, weight=1)
         self.attendance_lists_frame.columnconfigure(0, weight=1)
-        self.attendance_lists_frame.columnconfigure(1, weight=1)
+        
+        # Bind to configure event to adjust the window width when canvas changes size
+        self.attendance_preview_canvas.bind('<Configure>', self._on_attendance_canvas_configure)
+        
+    def _on_attendance_canvas_configure(self, event):
+        # Update the width of the window to match the canvas width
+        width = event.width - 10  # A little less than full width to prevent horizontal scrollbar
+        if self.attendance_preview_canvas.find_all():  # Check if canvas has items
+            self.attendance_preview_canvas.itemconfigure(self.attendance_preview_canvas.find_all()[0], width=width)
         
     def export_student_schedules(self):
         self.app.clear_error()
@@ -125,9 +167,10 @@ class ExportsTab:
             return
         
         filepath = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
-        if filepath:
+        if filepath:  # Only proceed if the user didn't cancel the dialog
             if self.scheduler.export_student_schedules_pdf(filepath):
                 self.app.clear_error()
+        # If filepath is empty (user cancelled), do nothing
 
     def export_attendance_lists(self):
         self.app.clear_error()
@@ -148,6 +191,12 @@ class ExportsTab:
 
         for widget in self.student_preview_frame.winfo_children():
             widget.destroy()
+
+        # Configure the frame columns for appropriate widths
+        self.student_preview_frame.columnconfigure(0, weight=1)   # Zeit column
+        self.student_preview_frame.columnconfigure(1, weight=4)   # Unternehmen column (much wider)
+        self.student_preview_frame.columnconfigure(2, weight=1)   # Raum column
+        self.student_preview_frame.columnconfigure(3, weight=1)   # Wunsch column
 
         # Display the overall erfüllungsscore at the top
         overall_score = self.scheduler.calculate_overall_fulfillment_score()
@@ -175,40 +224,9 @@ class ExportsTab:
                 
                 # Prepare schedule data
                 schedule_data = []
-                for slot_letter, time_range, company, room in appointments:
-                    # Find which wish number this is
-                    wish_number = None
-                    
-                    # Handle both direct company name matches and numeric matches
-                    for i, wish in enumerate(student.wishes):
-                        if not wish:
-                            continue
-                            
-                        normalized_wish = str(wish).strip()
-                        
-                        # Check for direct company name match
-                        if normalized_wish == company:
-                            wish_number = i + 1
-                            break
-                            
-                        # Check for company number match
-                        try:
-                            wish_num = int(float(normalized_wish))
-                            company_for_number = None
-                            for c in self.scheduler.core.companies:
-                                if str(wish_num) == company_to_number.get(c.name.strip()):
-                                    company_for_number = c.name.strip()
-                                    break
-                            
-                            if company_for_number == company:
-                                wish_number = i + 1
-                                break
-                        except (ValueError, TypeError):
-                            pass
-                    
-                    if wish_number is None:
-                        wish_number = "-"
-                    
+                for slot_letter, time_range, company, room, wish_number in appointments:
+                    # Use the wish_number provided directly from the tuple
+                    # This is more accurate than trying to recalculate it
                     schedule_data.append({
                         "time": f"{slot_letter} ({time_range})",
                         "company": company,
@@ -240,12 +258,16 @@ class ExportsTab:
                 ).grid(row=row, column=0, columnspan=4, pady=(10, 5), sticky="w")
                 row += 1
 
-                for col, header in enumerate(["Zeit", "Unternehmen", "Raum", "Wunsch Nr."]):
+                # Create headers with appropriate widths
+                headers = ["Zeit", "Unternehmen", "Raum", "Wunsch Nr."]
+                sticky_values = ["w", "w", "w", "w"]
+                
+                for col, (header, sticky) in enumerate(zip(headers, sticky_values)):
                     ttk.Label(
                         self.student_preview_frame,
                         text=header,
                         font=("Helvetica", 9, "bold")
-                    ).grid(row=row, column=col, padx=5, pady=2, sticky="w")
+                    ).grid(row=row, column=col, padx=5, pady=2, sticky=sticky)
                 row += 1
 
                 for appointment in student["schedule"]:
@@ -253,10 +275,14 @@ class ExportsTab:
                         self.student_preview_frame,
                         text=appointment["time"],
                     ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
+                    
+                    # Company name with more space
                     ttk.Label(
                         self.student_preview_frame,
                         text=appointment["company"],
+                        wraplength=400  # Allow wrapping for very long company names
                     ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
+                    
                     ttk.Label(
                         self.student_preview_frame,
                         text=appointment["room"],
@@ -296,30 +322,40 @@ class ExportsTab:
         for widget in self.attendance_preview_frame.winfo_children():
             widget.destroy()
 
-        # Create a temporary PDF for preview
-        temp_filepath = "temp_attendance_preview.pdf"
-        if self.scheduler.export_attendance_lists_pdf(temp_filepath, preview_mode=True):
+        # Configure column weights for attendance list display
+        self.attendance_preview_frame.columnconfigure(0, weight=1)    # Nr column
+        self.attendance_preview_frame.columnconfigure(1, weight=6)    # Name column (wider)
+        self.attendance_preview_frame.columnconfigure(2, weight=2)    # Klasse column
+        self.attendance_preview_frame.columnconfigure(3, weight=2)    # Anwesend column
+
+        # Create a temporary PDF for preview - use an actual temp filepath
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+            temp_filepath = temp_file.name
+            
+        # Ensure we have a valid filepath for the preview
+        if temp_filepath and self.scheduler.export_attendance_lists_pdf(temp_filepath, preview_mode=True):
             # Show the preview directly in the UI
             sorted_sessions = sorted(
                 self.scheduler.get_schedule().items(),
                 key=lambda x: (x[0][0], x[0][1]),
             )
 
-            company_names = list(
-                set(company_name for (company_name, _), _ in sorted_sessions)
+            # Get unique company IDs (now includes specialization)
+            company_ids = list(
+                set(company_id for (company_id, _), _ in sorted_sessions)
             )
-            if len(company_names) > 6:
-                company_names = company_names[:6]
+            if len(company_ids) > 6:
+                company_ids = company_ids[:6]
 
             sorted_sessions = [
                 (key, session)
                 for (key, session) in sorted_sessions
-                if key[0] in company_names
+                if key[0] in company_ids
             ]
 
             row = 0
 
-            for (company_name, slot_idx), session in sorted_sessions:
+            for (company_id, slot_idx), session in sorted_sessions:
                 # Skip excluded companies
                 if slot_idx == -1:
                     continue
@@ -327,37 +363,36 @@ class ExportsTab:
                 # Get time slot information
                 slot_letter, time_range = self.scheduler.time_slots[slot_idx]
                 
-                # Company header
-                ttk.Label(
+                # Company header with field info if available
+                company_name = session.get_company_display_name()
+                
+                # Company header - full width, larger font
+                header_label = ttk.Label(
                     self.attendance_preview_frame,
                     text=f"{company_name}",
-                ).grid(row=row, column=0, columnspan=4, pady=(20, 5), sticky="w")
+                    font=("Helvetica", 11, "bold")
+                )
+                header_label.grid(row=row, column=0, columnspan=4, pady=(20, 5), sticky="w")
                 row += 1
 
                 # Time slot and room information
-                ttk.Label(
+                time_label = ttk.Label(
                     self.attendance_preview_frame,
                     text=f"Zeitfenster: {slot_letter} ({time_range}) - Raum: {session.room}",
-                ).grid(row=row, column=0, columnspan=4, pady=(0, 5), sticky="w")
+                    font=("Helvetica", 10, "italic")
+                )
+                time_label.grid(row=row, column=0, columnspan=4, pady=(0, 10), sticky="w")
                 row += 1
 
-                # Attendance list headers
-                ttk.Label(
-                    self.attendance_preview_frame,
-                    text="Nr.",
-                ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
-                ttk.Label(
-                    self.attendance_preview_frame,
-                    text="Name",
-                ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
-                ttk.Label(
-                    self.attendance_preview_frame,
-                    text="Klasse",
-                ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
-                ttk.Label(
-                    self.attendance_preview_frame,
-                    text="Anwesend",
-                ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
+                # Attendance list headers - bold
+                headers = [("Nr.", 0), ("Name", 1), ("Klasse", 2), ("Anwesend", 3)]
+                for header_text, col in headers:
+                    header = ttk.Label(
+                        self.attendance_preview_frame,
+                        text=header_text,
+                        font=("Helvetica", 10, "bold")
+                    )
+                    header.grid(row=row, column=col, padx=5, pady=5, sticky="w")
                 row += 1
 
                 # Check if this company has reached its minimum participants
@@ -367,63 +402,64 @@ class ExportsTab:
                         self.attendance_preview_frame,
                         text="",
                     ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
-                    ttk.Label(
+                    
+                    warning_label = ttk.Label(
                         self.attendance_preview_frame,
                         text="Mindest Anzahl nicht erreicht",
-                        font=("Helvetica", 10, "bold"),
-                    ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
+                        font=("Helvetica", 10, "bold")
+                    )
+                    # Use foreground color if possible (ttk needs style)
+                    try:
+                        warning_label.configure(foreground="red")
+                    except:
+                        pass
+                        
+                    warning_label.grid(row=row, column=1, columnspan=3, padx=5, pady=10, sticky="w")
+                    row += 1
+                elif len(session.students) == 0:
+                    # No students assigned
                     ttk.Label(
                         self.attendance_preview_frame,
                         text="",
-                    ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
-                    ttk.Label(
+                    ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
+                    
+                    empty_label = ttk.Label(
                         self.attendance_preview_frame,
-                        text="",
-                    ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
+                        text="Keine Teilnehmer",
+                        font=("Helvetica", 10)
+                    )
+                    empty_label.grid(row=row, column=1, columnspan=3, padx=5, pady=10, sticky="w")
                     row += 1
                 else:
                     # Student rows - sort by name
                     for i, student in enumerate(sorted(session.students, key=lambda x: x["name"]), 1):
                         class_name = student["id"].split("_")[0]
+                        
+                        # Number
                         ttk.Label(
                             self.attendance_preview_frame,
                             text=str(i),
                         ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
+                        
+                        # Name - wider column
                         ttk.Label(
                             self.attendance_preview_frame,
                             text=student["name"],
+                            wraplength=300  # Allow wrapping for very long names
                         ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
+                        
+                        # Class
                         ttk.Label(
                             self.attendance_preview_frame,
                             text=class_name,
                         ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
+                        
+                        # Attendance checkbox placeholder
                         ttk.Label(
                             self.attendance_preview_frame,
-                            text="________________",
+                            text="□",
                         ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
-                        row += 1
-
-                    # Check if there are no students
-                    current_students = len(session.students)
-                    if current_students == 0:
-                        # If no students, add a message row
-                        ttk.Label(
-                            self.attendance_preview_frame,
-                            text="",
-                        ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
-                        ttk.Label(
-                            self.attendance_preview_frame,
-                            text="Keine Teilnehmer",
-                            font=("Helvetica", 10, "bold"),
-                        ).grid(row=row, column=1, padx=5, pady=2, sticky="w")
-                        ttk.Label(
-                            self.attendance_preview_frame,
-                            text="",
-                        ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
-                        ttk.Label(
-                            self.attendance_preview_frame,
-                            text="",
-                        ).grid(row=row, column=3, padx=5, pady=2, sticky="w")
+                        
                         row += 1
 
             # Update canvas scroll region
