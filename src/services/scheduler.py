@@ -5,6 +5,7 @@ from tkinter import messagebox
 
 from services.scheduler_core import SchedulerCore
 from services.pdf_exporter import PDFExporter
+from services.excel_exporter import ExcelExporter
 from services.attendance_exporter import AttendanceExporter
 from models.student import StudentPreference
 
@@ -13,6 +14,7 @@ class Scheduler:
     def __init__(self, error_handler: Optional[Callable[[str], None]] = None):
         self.core = SchedulerCore(error_handler)
         self.pdf_exporter = PDFExporter()
+        self.excel_exporter = ExcelExporter()
         self.attendance_exporter = AttendanceExporter()
         self.time_slots = self.core.time_slots
         self.error_handler = error_handler
@@ -245,303 +247,124 @@ class Scheduler:
         """Export student schedules as PDF"""
         self.clear_error()
         
-        if not self.get_schedule():
-            self.on_error("No schedule available. Please generate a schedule first.")
+        if not self.core.schedule:
+            self.on_error("Bitte zuerst den Zeitplan generieren.")
             return False
             
         try:
-            from reportlab.lib import colors
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.lib.units import mm
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-            
-            # Create the PDF document
-            doc = SimpleDocTemplate(
-                filepath,
-                pagesize=A4,
-                rightMargin=10*mm,
-                leftMargin=10*mm,
-                topMargin=10*mm,
-                bottomMargin=10*mm
+            # Use the PDF exporter to export student schedules
+            self.pdf_exporter.export_student_schedules(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                student_preferences=self.core.student_preferences,
+                time_slots=self.time_slots
             )
-            
-            story = []
-            styles = getSampleStyleSheet()
-            
-            # Add title
-            title_style = ParagraphStyle(
-                'CustomTitle',
-                parent=styles['Heading1'],
-                fontSize=16,
-                spaceAfter=10
-            )
-            story.append(Paragraph("Schülerzeitpläne", title_style))
-            
-            # Add overall score
-            overall_score = self.calculate_overall_fulfillment_score()
-            score_style = ParagraphStyle(
-                'Score',
-                parent=styles['Normal'],
-                fontSize=12,
-                spaceAfter=5
-            )
-            story.append(Paragraph(f"Gesamter Erfüllungsscore: {overall_score:.1f}%", score_style))
-            story.append(Spacer(1, 5*mm))
-            
-            # Get student schedules organized by class for better readability
-            student_schedules = self.get_student_schedules()
-            
-            # Organize by class
-            class_schedules = {}
-            for student_name, appointments in student_schedules.items():
-                # Find the student to get their class
-                student = next((s for s in self.core.student_preferences if s.name == student_name), None)
-                if student:
-                    class_name = student.student_id.split("_")[0]
-                    if class_name not in class_schedules:
-                        class_schedules[class_name] = []
-                        
-                    class_schedules[class_name].append({
-                        "name": student_name,
-                        "schedule": appointments
-                    })
-                    
-            # Add schedules by class
-            for class_name, students in sorted(class_schedules.items()):
-                # Add class header
-                class_style = ParagraphStyle(
-                    'ClassTitle',
-                    parent=styles['Heading2'],
-                    fontSize=14,
-                    spaceAfter=5
-                )
-                story.append(Paragraph(f"Klasse {class_name}", class_style))
-                
-                # For each student in this class
-                for student in sorted(students, key=lambda x: x["name"]):
-                    # Add student name
-                    student_style = ParagraphStyle(
-                        'StudentName',
-                        parent=styles['Heading3'],
-                        fontSize=12,
-                        spaceAfter=5
-                    )
-                    story.append(Paragraph(f"{student['name']}", student_style))
-                    
-                    # Create a table for this student's schedule
-                    schedule_data = [["Zeit", "Unternehmen", "Raum", "Wunsch Nr."]]
-                    
-                    # Sort appointments by time slot
-                    for time_slot, time_range, company, room, wish_num in student["schedule"]:
-                        schedule_data.append([f"{time_slot} ({time_range})", company, room, str(wish_num) if wish_num != "-" else "-"])
-                        
-                    # Create table with styling
-                    t = Table(schedule_data, colWidths=[40*mm, 70*mm, 30*mm, 30*mm])
-                    
-                    # Define styles for the table
-                    table_style = [
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ]
-                    
-                    # Color the wish numbers by importance
-                    for i in range(1, len(schedule_data)):
-                        wish = schedule_data[i][3]
-                        try:
-                            wish_num = int(wish)
-                            if wish_num == 1:
-                                table_style.append(('TEXTCOLOR', (3, i), (3, i), colors.green))
-                            elif wish_num == 2:
-                                table_style.append(('TEXTCOLOR', (3, i), (3, i), colors.darkgreen))
-                            elif wish_num == 3:
-                                table_style.append(('TEXTCOLOR', (3, i), (3, i), colors.blue))
-                            elif wish_num in [4, 5, 6]:
-                                table_style.append(('TEXTCOLOR', (3, i), (3, i), colors.orange))
-                        except:
-                            pass
-                            
-                    t.setStyle(TableStyle(table_style))
-                    story.append(t)
-                    story.append(Spacer(1, 5*mm))
-                    
-                # Add space after each class
-                story.append(Spacer(1, 5*mm))
-                
-            # Build the PDF
-            doc.build(story)
             return True
-            
         except Exception as e:
-            self.on_error(f"Error exporting student schedules: {str(e)}")
+            self.on_error(f"Fehler beim Exportieren: {str(e)}")
+            return False
+            
+    def export_student_schedules_excel(self, filepath: str) -> bool:
+        """Export student schedules as Excel"""
+        self.clear_error()
+        
+        if not self.core.schedule:
+            self.on_error("Bitte zuerst den Zeitplan generieren.")
+            return False
+            
+        try:
+            # Use the Excel exporter to export student schedules
+            self.excel_exporter.export_student_schedules(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                student_preferences=self.core.student_preferences,
+                time_slots=self.time_slots
+            )
+            return True
+        except Exception as e:
+            self.on_error(f"Fehler beim Exportieren: {str(e)}")
             return False
 
     def export_company_overview_pdf(self, filepath: str) -> bool:
+        """Export company overview as PDF"""
+        self.clear_error()
+        
+        if not self.core.schedule:
+            self.on_error("Bitte zuerst den Zeitplan generieren.")
+            return False
+            
         try:
-            if not self.is_data_loaded() or not self.get_schedule():
-                if self.error_handler:
-                    self.error_handler("Bitte laden Sie alle Dateien und generieren Sie einen Zeitplan.")
-                else:
-                    messagebox.showerror(
-                        "Error", "Bitte laden Sie alle Dateien und generieren Sie einen Zeitplan."
-                    )
-                return False
-
+            # Use the PDF exporter to export company overview
             self.pdf_exporter.export_company_overview(
-                filepath,
-                self.get_schedule(),
-                self.time_slots
+                filepath=filepath,
+                schedule=self.core.schedule,
+                time_slots=self.time_slots
             )
             return True
         except Exception as e:
-            if self.error_handler:
-                self.error_handler(f"Fehler beim Exportieren: {str(e)}")
-            else:
-                messagebox.showerror("Error", f"Fehler beim Exportieren: {str(e)}")
+            self.on_error(f"Fehler beim Exportieren: {str(e)}")
+            return False
+            
+    def export_company_overview_excel(self, filepath: str) -> bool:
+        """Export company overview as Excel"""
+        self.clear_error()
+        
+        if not self.core.schedule:
+            self.on_error("Bitte zuerst den Zeitplan generieren.")
+            return False
+            
+        try:
+            # Use the Excel exporter to export company overview
+            self.excel_exporter.export_company_overview(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                time_slots=self.time_slots
+            )
+            return True
+        except Exception as e:
+            self.on_error(f"Fehler beim Exportieren: {str(e)}")
             return False
 
     def export_attendance_lists_pdf(self, filepath: str, preview_mode=False) -> bool:
         """Export attendance lists as PDF"""
         self.clear_error()
         
-        if not self.get_schedule():
-            self.on_error("No schedule available. Please generate a schedule first.")
+        if not self.core.schedule:
+            self.on_error("Bitte zuerst den Zeitplan generieren.")
             return False
             
         try:
-            from reportlab.lib import colors
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.lib.units import mm
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-            
-            # Create the PDF document
-            doc = SimpleDocTemplate(
-                filepath,
-                pagesize=A4,
-                rightMargin=10*mm,
-                leftMargin=10*mm,
-                topMargin=10*mm,
-                bottomMargin=10*mm
+            # Use the attendance exporter to export attendance lists
+            self.attendance_exporter.export_attendance_lists(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                time_slots=self.time_slots,
+                preview_mode=preview_mode
             )
-            
-            story = []
-            styles = getSampleStyleSheet()
-            
-            # Add title
-            title_style = ParagraphStyle(
-                'CustomTitle',
-                parent=styles['Heading1'],
-                fontSize=16,
-                spaceAfter=10
-            )
-            story.append(Paragraph("Anwesenheitslisten", title_style))
-            story.append(Spacer(1, 10*mm))
-            
-            # Sort sessions by company and time slot for predictable order
-            sorted_sessions = sorted(
-                self.get_schedule().items(),
-                key=lambda x: (x[0][0], x[0][1])  # Sort by company ID then slot
-            )
-            
-            # Add a table for each session
-            for (company_id, slot_idx), session in sorted_sessions:
-                if slot_idx == -1:  # Skip excluded companies
-                    continue
-                    
-                # Get company name (with field if available)
-                company_name = session.get_company_display_name()
-                
-                # Get time slot information
-                slot_letter, time_range = self.time_slots[slot_idx]
-                
-                # Add company header
-                section_style = ParagraphStyle(
-                    'SectionTitle',
-                    parent=styles['Heading2'],
-                    fontSize=14,
-                    spaceAfter=5
-                )
-                story.append(Paragraph(f"{company_name}", section_style))
-                
-                # Add time slot and room information
-                info_style = ParagraphStyle(
-                    'Info',
-                    parent=styles['Normal'],
-                    fontSize=11,
-                    spaceAfter=5
-                )
-                story.append(Paragraph(f"Zeitfenster: {slot_letter} ({time_range}) - Raum: {session.room}", info_style))
-                
-                # Check if minimum participants are reached
-                attendance_data = []
-                attendance_header = ["Nr.", "Name", "Klasse", "Anwesend"]
-                
-                if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:
-                    # If not enough students, show a message
-                    attendance_data.append(attendance_header)
-                    attendance_data.append(["", "Mindest Anzahl nicht erreicht", "", ""])
-                    
-                    # Create a simple table
-                    t = Table(attendance_data, colWidths=[10*mm, 100*mm, 30*mm, 40*mm])
-                    t.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
-                        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ]))
-                    
-                elif len(session.students) == 0:
-                    # If no students assigned, show a message
-                    attendance_data.append(attendance_header)
-                    attendance_data.append(["", "Keine Teilnehmer", "", ""])
-                    
-                    # Create a simple table
-                    t = Table(attendance_data, colWidths=[10*mm, 100*mm, 30*mm, 40*mm])
-                    t.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
-                        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ]))
-                    
-                else:
-                    # Add student rows (sorted by name for easier lookup)
-                    attendance_data.append(attendance_header)
-                    for i, student in enumerate(sorted(session.students, key=lambda x: x["name"]), 1):
-                        class_name = student["id"].split("_")[0]
-                        attendance_data.append([str(i), student["name"], class_name, ""])
-                        
-                    # Create the table with styling
-                    t = Table(attendance_data, colWidths=[10*mm, 100*mm, 30*mm, 40*mm])
-                    t.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ]))
-                
-                story.append(t)
-                story.append(Spacer(1, 10*mm))
-            
-            # Build the PDF
-            doc.build(story)
             return True
-            
         except Exception as e:
-            self.on_error(f"Error exporting attendance lists: {str(e)}")
+            self.on_error(f"Fehler beim Exportieren: {str(e)}")
+            return False
+            
+    def export_attendance_lists_excel(self, filepath: str, preview_mode=False) -> bool:
+        """Export attendance lists as Excel"""
+        self.clear_error()
+        
+        if not self.core.schedule:
+            self.on_error("Bitte zuerst den Zeitplan generieren.")
+            return False
+            
+        try:
+            # Use the Excel exporter to export attendance lists
+            self.excel_exporter.export_attendance_lists(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                time_slots=self.time_slots,
+                preview_mode=preview_mode
+            )
+            return True
+        except Exception as e:
+            self.on_error(f"Fehler beim Exportieren: {str(e)}")
             return False
 
     def get_student_schedules(self):

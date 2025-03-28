@@ -171,10 +171,24 @@ class ExportsTab:
             self.app.show_error("Bitte erst den Zeitplan generieren!")
             return
         
-        filepath = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
+        filetypes = [("PDF files", "*.pdf"), ("Excel files", "*.xlsx")]
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".xlsx", 
+            filetypes=filetypes
+        )
+        
         if filepath:  # Only proceed if the user didn't cancel the dialog
-            if self.scheduler.export_student_schedules_pdf(filepath):
-                self.app.clear_error()
+            # Determine export type based on file extension
+            if filepath.lower().endswith('.pdf'):
+                if self.scheduler.export_student_schedules_pdf(filepath):
+                    self.app.clear_error()
+            elif filepath.lower().endswith('.xlsx'):
+                if self.scheduler.export_student_schedules_excel(filepath):
+                    self.app.clear_error()
+            else:
+                # Default to Excel if extension is unclear
+                if self.scheduler.export_student_schedules_excel(filepath + '.xlsx'):
+                    self.app.clear_error()
         # If filepath is empty (user cancelled), do nothing
 
     def export_attendance_lists(self):
@@ -183,11 +197,25 @@ class ExportsTab:
             self.app.show_error("Bitte erst den Zeitplan generieren!")
             return
         
-        filepath = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
+        filetypes = [("PDF files", "*.pdf"), ("Excel files", "*.xlsx")]
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".xlsx", 
+            filetypes=filetypes
+        )
+        
         if filepath:
-            if self.scheduler.export_attendance_lists_pdf(filepath):
-                self.app.clear_error()
-                
+            # Determine export type based on file extension
+            if filepath.lower().endswith('.pdf'):
+                if self.scheduler.export_attendance_lists_pdf(filepath):
+                    self.app.clear_error()
+            elif filepath.lower().endswith('.xlsx'):
+                if self.scheduler.export_attendance_lists_excel(filepath):
+                    self.app.clear_error()
+            else:
+                # Default to Excel if extension is unclear
+                if self.scheduler.export_attendance_lists_excel(filepath + '.xlsx'):
+                    self.app.clear_error()
+
     def preview_student_schedules(self):
         self.app.clear_error()
         if not self.scheduler.get_schedule():
@@ -828,7 +856,7 @@ class ExportsTab:
                 # Export summaries
                 summary_df.to_excel(writer, sheet_name="Zusammenfassung", index=False, startrow=0)
                 summary_df2.to_excel(writer, sheet_name="Zusammenfassung", index=False, startrow=len(summary_df) + 3)
-                
+            
             messagebox.showinfo("Information", f"Erfüllungsbericht wurde nach {file_path} exportiert.")
         except Exception as e:
             import traceback
@@ -862,21 +890,21 @@ class ExportsTab:
         # Export buttons
         ttk.Button(
             buttons_frame,
-            text="Schüler-Zeitpläne (PDF)",
+            text="Schüler-Zeitpläne exportieren",
             command=self.export_student_schedules,
             width=25,
         ).grid(row=0, column=0, padx=5, pady=5)
 
         ttk.Button(
             buttons_frame,
-            text="Unternehmen-Zeitpläne (PDF)",
+            text="Unternehmen-Zeitpläne exportieren",
             command=self.export_company_schedules,
             width=25,
         ).grid(row=0, column=1, padx=5, pady=5)
 
         ttk.Button(
             buttons_frame,
-            text="Anwesenheitslisten (Excel)",
+            text="Anwesenheitslisten exportieren",
             command=self.export_attendance_lists,
             width=25,
         ).grid(row=0, column=2, padx=5, pady=5)
@@ -933,3 +961,139 @@ class ExportsTab:
         self.scrollbar.grid(row=0, column=1, sticky="ns")
         self.results_frame.columnconfigure(0, weight=1)
         self.results_frame.rowconfigure(0, weight=1) 
+
+    def export_company_schedules(self):
+        self.app.clear_error()
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+        
+        filetypes = [("PDF files", "*.pdf"), ("Excel files", "*.xlsx")]
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".xlsx", 
+            filetypes=filetypes
+        )
+        
+        if filepath:
+            # Determine export type based on file extension
+            if filepath.lower().endswith('.pdf'):
+                if self.scheduler.export_company_overview_pdf(filepath):
+                    self.app.clear_error()
+            elif filepath.lower().endswith('.xlsx'):
+                if self.scheduler.export_company_overview_excel(filepath):
+                    self.app.clear_error()
+            else:
+                # Default to Excel if extension is unclear
+                if self.scheduler.export_company_overview_excel(filepath + '.xlsx'):
+                    self.app.clear_error()
+
+    def export_room_schedule(self):
+        self.app.clear_error()
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+            
+        messagebox.showinfo("Information", "Diese Funktion ist aktuell nicht verfügbar.")
+        # TODO: Implement room schedule export functionality
+
+    def export_all(self):
+        self.app.clear_error()
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+            
+        # Ask for a directory to save all exports
+        export_dir = filedialog.askdirectory(title="Wählen Sie einen Speicherort für alle Exporte")
+        if not export_dir:
+            return  # User cancelled
+            
+        try:
+            import zipfile
+            from datetime import datetime
+            
+            # Create a timestamp for the export
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Create a ZIP file to contain all exports
+            zip_filepath = os.path.join(export_dir, f"Zeitplan_Export_{timestamp}.zip")
+            
+            # Create temporary directory for all files
+            import tempfile
+            temp_dir = tempfile.mkdtemp()
+            
+            # Export all files
+            student_file_pdf = os.path.join(temp_dir, "Schüler_Zeitpläne.pdf")
+            student_file_xlsx = os.path.join(temp_dir, "Schüler_Zeitpläne.xlsx")
+            company_file_pdf = os.path.join(temp_dir, "Unternehmen_Übersicht.pdf")
+            company_file_xlsx = os.path.join(temp_dir, "Unternehmen_Übersicht.xlsx")
+            attendance_file_pdf = os.path.join(temp_dir, "Anwesenheitslisten.pdf")
+            attendance_file_xlsx = os.path.join(temp_dir, "Anwesenheitslisten.xlsx")
+            
+            # Export all files
+            self.scheduler.export_student_schedules_pdf(student_file_pdf)
+            self.scheduler.export_student_schedules_excel(student_file_xlsx)
+            self.scheduler.export_company_overview_pdf(company_file_pdf)
+            self.scheduler.export_company_overview_excel(company_file_xlsx)
+            self.scheduler.export_attendance_lists_pdf(attendance_file_pdf)
+            self.scheduler.export_attendance_lists_excel(attendance_file_xlsx)
+            
+            # Create fulfillment report
+            fulfillment_file = os.path.join(temp_dir, "Erfüllungsbericht.xlsx")
+            stats = self.scheduler.get_fulfillment_statistics()
+            student_df = self.scheduler.get_student_fulfillment_scores()
+            
+            # Create Excel file for fulfillment report
+            with pd.ExcelWriter(fulfillment_file, engine='openpyxl') as writer:
+                # Export the detailed student DataFrame
+                student_df.to_excel(writer, sheet_name="Schülerdetails", index=False)
+                
+                # Create a summary sheet
+                summary_data = {
+                    "Wunsch": ["1. Wunsch", "2. Wunsch", "3. Wunsch", "4. Wunsch", "5. Wunsch", "Kein Wunsch"],
+                    "Anzahl": [
+                        stats.get("wish1_fulfilled", 0),
+                        stats.get("wish2_fulfilled", 0),
+                        stats.get("wish3_fulfilled", 0),
+                        stats.get("wish4_fulfilled", 0),
+                        stats.get("wish5_fulfilled", 0),
+                        stats.get("no_wish_fulfilled", 0)
+                    ],
+                    "Gewichtung": [5, 4, 3, 2, 1, 0],
+                    "Punkte": [
+                        5 * stats.get("wish1_fulfilled", 0),
+                        4 * stats.get("wish2_fulfilled", 0),
+                        3 * stats.get("wish3_fulfilled", 0), 
+                        2 * stats.get("wish4_fulfilled", 0),
+                        1 * stats.get("wish5_fulfilled", 0),
+                        0
+                    ]
+                }
+                
+                summary_df = pd.DataFrame(summary_data)
+                
+                # Add totals
+                total_points = sum(summary_data["Punkte"])
+                total_wishes = sum(summary_data["Anzahl"])
+                summary_df.loc["Total"] = ["Gesamt", total_wishes, "", total_points]
+                
+                # Export summary
+                summary_df.to_excel(writer, sheet_name="Zusammenfassung", index=False)
+            
+            # Create the ZIP file containing all exports
+            with zipfile.ZipFile(zip_filepath, 'w') as zipf:
+                for root, dirs, files in os.walk(temp_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, temp_dir)
+                        zipf.write(file_path, arcname)
+            
+            # Clean up temporary directory
+            import shutil
+            shutil.rmtree(temp_dir)
+            
+            messagebox.showinfo("Information", f"Alle Exporte wurden nach {zip_filepath} exportiert.")
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Fehler beim Exportieren: {str(e)}") 

@@ -1,0 +1,398 @@
+from typing import List, Dict, Tuple, Optional
+import os
+import pandas as pd
+from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+from models.student import StudentPreference
+
+
+class ExcelExporter:
+    def __init__(self):
+        # Define standard colors
+        self.header_fill = PatternFill(start_color="2F5596", end_color="2F5596", fill_type="solid")
+        self.header_font = Font(bold=True, color="FFFFFF")
+        self.subheader_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+        self.subheader_font = Font(bold=True)
+        self.alt_row_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+        
+        # Define borders
+        self.thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+
+    def export_student_schedules(self, filepath: str, schedule: Dict[Tuple[str, int], any], 
+                                student_preferences: List[StudentPreference], time_slots: List[Tuple[str, str]]):
+        """
+        Export student schedules to an Excel file
+        
+        Args:
+            filepath: The path to save the Excel file to
+            schedule: The schedule data (company name, slot) -> session
+            student_preferences: List of student preferences
+            time_slots: List of time slots as (letter, time range)
+        """
+        # Create the directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        # Create a new workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Schüler Zeitpläne"
+        
+        # Add title and date
+        ws.cell(row=1, column=1, value="Schüler Zeitpläne")
+        ws.cell(row=1, column=1).font = Font(bold=True, size=16)
+        ws.cell(row=2, column=1, value=f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        
+        # Prepare student schedules
+        student_schedules = self._prepare_student_schedules(schedule, student_preferences)
+        
+        # Start row for the first student
+        current_row = 4
+        
+        # Add a section for each student with their schedule
+        sorted_students = sorted(student_schedules.keys(), key=lambda x: x.lower())
+        
+        for student_name in sorted_students:
+            # Add student name header
+            ws.cell(row=current_row, column=1, value=f"Schüler: {student_name}")
+            ws.cell(row=current_row, column=1).font = self.subheader_font
+            current_row += 1
+            
+            # Add table headers
+            headers = ["Slot", "Zeit", "Unternehmen", "Raum"]
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=current_row, column=col, value=header)
+                cell.fill = self.header_fill
+                cell.font = self.header_font
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = self.thin_border
+            
+            current_row += 1
+            
+            # Add rows for each time slot
+            student_data = student_schedules[student_name]
+            
+            for row_idx, (slot_idx, (slot_letter, time_range)) in enumerate(enumerate(time_slots), 0):
+                # Apply alternating row colors
+                row_fill = self.alt_row_fill if row_idx % 2 == 0 else None
+                
+                # Add slot and time
+                cell = ws.cell(row=current_row, column=1, value=slot_letter)
+                if row_fill:
+                    cell.fill = row_fill
+                cell.border = self.thin_border
+                
+                cell = ws.cell(row=current_row, column=2, value=time_range)
+                if row_fill:
+                    cell.fill = row_fill
+                cell.border = self.thin_border
+                
+                # Add company and room if available for this slot
+                if slot_idx in student_data:
+                    company_name, room = student_data[slot_idx]
+                    
+                    cell = ws.cell(row=current_row, column=3, value=company_name)
+                    if row_fill:
+                        cell.fill = row_fill
+                    cell.border = self.thin_border
+                    
+                    cell = ws.cell(row=current_row, column=4, value=room)
+                    if row_fill:
+                        cell.fill = row_fill
+                    cell.border = self.thin_border
+                else:
+                    cell = ws.cell(row=current_row, column=3, value="-")
+                    if row_fill:
+                        cell.fill = row_fill
+                    cell.border = self.thin_border
+                    
+                    cell = ws.cell(row=current_row, column=4, value="-")
+                    if row_fill:
+                        cell.fill = row_fill
+                    cell.border = self.thin_border
+                
+                current_row += 1
+            
+            # Add a blank row between students
+            current_row += 1
+        
+        # Adjust column widths
+        ws.column_dimensions['A'].width = 10  # Slot
+        ws.column_dimensions['B'].width = 20  # Zeit
+        ws.column_dimensions['C'].width = 40  # Unternehmen
+        ws.column_dimensions['D'].width = 20  # Raum
+        
+        # Save the workbook
+        wb.save(filepath)
+        return True
+            
+    def _prepare_student_schedules(self, schedule, student_preferences):
+        """
+        Create a dictionary mapping student names to their schedules
+        
+        Returns:
+            dict: student_name -> {slot_idx: (company_name, room)}
+        """
+        student_schedules = {}
+        
+        # Initialize schedules for all students
+        for student in student_preferences:
+            student_schedules[student.name] = {}
+            
+        # Fill in the schedules based on company sessions
+        for (company_id, slot_idx), session in schedule.items():
+            if slot_idx == -1:
+                continue  # Skip excluded companies
+                
+            # Add each student in this session to their schedule
+            for student in session.students:
+                student_name = student["name"]
+                if student_name not in student_schedules:
+                    student_schedules[student_name] = {}
+                    
+                student_schedules[student_name][slot_idx] = (session.company.name, session.room)
+                
+        return student_schedules
+        
+    def export_company_overview(self, filepath: str, schedule: Dict[Tuple[str, int], any],
+                               time_slots: List[Tuple[str, str]]):
+        """
+        Export company overview to an Excel file
+        
+        Args:
+            filepath: The path to save the Excel file to
+            schedule: The schedule data (company name, slot) -> session
+            time_slots: List of time slots as (letter, time range)
+        """
+        # Create the directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        # Create a new workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Unternehmensübersicht"
+        
+        # Add title and date
+        ws.cell(row=1, column=1, value="Unternehmensübersicht")
+        ws.cell(row=1, column=1).font = Font(bold=True, size=16)
+        ws.cell(row=2, column=1, value=f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        
+        # Organize by time slot
+        slot_to_companies = {}
+        for (company_id, slot_idx), session in schedule.items():
+            if slot_idx == -1:
+                continue  # Skip excluded companies
+                
+            if slot_idx not in slot_to_companies:
+                slot_to_companies[slot_idx] = []
+                
+            slot_to_companies[slot_idx].append((session.company.name, session.room, len(session.students)))
+        
+        # Start row for the first section
+        current_row = 4
+        
+        # Add a table for each time slot
+        for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
+            if slot_idx not in slot_to_companies:
+                continue
+                
+            # Add slot title
+            ws.cell(row=current_row, column=1, value=f"Slot {slot_letter}: {time_range}")
+            ws.cell(row=current_row, column=1).font = self.subheader_font
+            current_row += 1
+            
+            # Add table headers
+            headers = ["Unternehmen", "Raum", "Anzahl Schüler"]
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=current_row, column=col, value=header)
+                cell.fill = self.header_fill
+                cell.font = self.header_font
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = self.thin_border
+            
+            current_row += 1
+            
+            # Add rows for each company
+            for row_idx, (company_name, room, student_count) in enumerate(
+                sorted(slot_to_companies[slot_idx], key=lambda x: x[0].lower())
+            ):
+                # Apply alternating row colors
+                row_fill = self.alt_row_fill if row_idx % 2 == 0 else None
+                
+                cell = ws.cell(row=current_row, column=1, value=company_name)
+                if row_fill:
+                    cell.fill = row_fill
+                cell.border = self.thin_border
+                
+                cell = ws.cell(row=current_row, column=2, value=room)
+                if row_fill:
+                    cell.fill = row_fill
+                cell.border = self.thin_border
+                
+                cell = ws.cell(row=current_row, column=3, value=student_count)
+                if row_fill:
+                    cell.fill = row_fill
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = self.thin_border
+                
+                current_row += 1
+            
+            # Add a blank row between sections
+            current_row += 1
+        
+        # Add a section for excluded companies
+        excluded_companies = []
+        for (company_id, slot_idx), session in schedule.items():
+            if slot_idx == -1:
+                excluded_companies.append(session.company.name)
+                
+        if excluded_companies:
+            # Add title for excluded companies
+            ws.cell(row=current_row, column=1, value="Ausgeschlossene Unternehmen")
+            ws.cell(row=current_row, column=1).font = self.subheader_font
+            current_row += 1
+            
+            # Add each excluded company
+            for company_name in sorted(excluded_companies):
+                ws.cell(row=current_row, column=1, value=f"• {company_name}: Hat nicht die Mindestteilnehmerzahl erreicht")
+                current_row += 1
+        
+        # Adjust column widths
+        ws.column_dimensions['A'].width = 40  # Unternehmen
+        ws.column_dimensions['B'].width = 20  # Raum
+        ws.column_dimensions['C'].width = 15  # Anzahl Schüler
+        
+        # Save the workbook
+        wb.save(filepath)
+        return True
+
+    def export_attendance_lists(self, filepath: str, schedule: Dict[Tuple[str, int], any], 
+                              time_slots: List[Tuple[str, str]], preview_mode=False):
+        """
+        Export attendance lists to an Excel file
+        
+        Args:
+            filepath: The path to save the Excel file to
+            schedule: The schedule data (company name, slot) -> session
+            time_slots: List of time slots as (letter, time range)
+            preview_mode: If True, only export a subset of companies for preview
+        """
+        # Create the directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        # Create a new workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Anwesenheitslisten"
+        
+        # Sort sessions by company name and slot
+        sorted_sessions = sorted(
+            schedule.items(),
+            key=lambda x: (x[0][0], x[0][1]),
+        )
+        
+        # For preview mode, limit the number of companies
+        if preview_mode:
+            company_ids = list(
+                set(company_id for (company_id, _), _ in sorted_sessions)
+            )
+            if len(company_ids) > 6:
+                company_ids = company_ids[:6]
+            sorted_sessions = [
+                (key, session)
+                for (key, session) in sorted_sessions
+                if key[0] in company_ids
+            ]
+        
+        # Start row for the first company
+        current_row = 1
+        
+        # Process each company session
+        for (company_id, slot_idx), session in sorted_sessions:
+            # Skip excluded companies
+            if slot_idx == -1:
+                continue
+                
+            # Get the slot letter and time range
+            slot_letter, time_range = time_slots[slot_idx]
+            
+            # Add company header
+            ws.cell(row=current_row, column=1, value=session.company.name)
+            ws.cell(row=current_row, column=1).font = Font(bold=True, size=14)
+            current_row += 1
+            
+            # Add session information
+            ws.cell(row=current_row, column=1, value=f"Zeitfenster: {slot_letter} ({time_range})")
+            current_row += 1
+            
+            ws.cell(row=current_row, column=1, value=f"Raum: {session.room}")
+            current_row += 1
+            
+            # Add table headers
+            headers = ["Nr.", "Name", "Klasse", "Anwesend"]
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=current_row, column=col, value=header)
+                cell.fill = self.header_fill
+                cell.font = self.header_font
+                cell.alignment = Alignment(horizontal='center')
+                cell.border = self.thin_border
+            
+            current_row += 1
+            
+            # Check if this company has reached its minimum participants
+            if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:
+                # If minimum participants not reached, just show a message
+                cell = ws.cell(row=current_row, column=2, value="Mindest Anzahl nicht erreicht")
+                cell.border = self.thin_border
+                current_row += 1
+            else:
+                # Add student rows
+                for i, student in enumerate(sorted(session.students, key=lambda x: x["name"]), 1):
+                    class_name = student["id"].split("_")[0]
+                    
+                    # Add student number
+                    cell = ws.cell(row=current_row, column=1, value=i)
+                    cell.border = self.thin_border
+                    cell.alignment = Alignment(horizontal='center')
+                    
+                    # Add student name
+                    cell = ws.cell(row=current_row, column=2, value=student["name"])
+                    cell.border = self.thin_border
+                    
+                    # Add class name
+                    cell = ws.cell(row=current_row, column=3, value=class_name)
+                    cell.border = self.thin_border
+                    cell.alignment = Alignment(horizontal='center')
+                    
+                    # Add empty cell for attendance
+                    cell = ws.cell(row=current_row, column=4, value="")
+                    cell.border = self.thin_border
+                    
+                    current_row += 1
+                
+                # Check if there are no students
+                if len(session.students) == 0:
+                    # If no students, add a message row
+                    cell = ws.cell(row=current_row, column=2, value="Keine Teilnehmer")
+                    cell.border = self.thin_border
+                    current_row += 1
+            
+            # Add space between companies
+            current_row += 2
+        
+        # Adjust column widths
+        ws.column_dimensions['A'].width = 5   # Nr.
+        ws.column_dimensions['B'].width = 30  # Name
+        ws.column_dimensions['C'].width = 15  # Klasse
+        ws.column_dimensions['D'].width = 15  # Anwesend
+        
+        # Save the workbook
+        wb.save(filepath)
+        return True 
