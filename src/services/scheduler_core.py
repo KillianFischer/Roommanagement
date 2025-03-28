@@ -277,6 +277,9 @@ class SchedulerCore:
         # Log which companies we're assigning
         logger.info(f"Companies to assign: {[company.name for company in companies]}")
         
+        # Track how many sessions have been assigned to each company
+        company_session_count = {company.unique_id: 0 for company in companies}
+        
         # Check for Finanzamt company
         finanzamt_companies = [c for c in companies if "finanzamt" in c.name.lower()]
         if finanzamt_companies:
@@ -294,7 +297,7 @@ class SchedulerCore:
         # Assign popular companies to larger rooms
         for company in companies:
             wish_count = wish_counts.get(company.name.strip(), 0)
-            logger.info(f"Assigning {company.name} (popularity: {wish_count}) to rooms")
+            logger.info(f"Assigning {company.name} (popularity: {wish_count}, max_sessions: {company.max_sessions}) to rooms")
             
             # Skip if no students are interested
             if wish_count == 0:
@@ -353,8 +356,16 @@ class SchedulerCore:
                             fixed_room = suitable_rooms[0]
                             company.fixed_room = fixed_room
             
+            # Keep track of sessions assigned for this company
+            sessions_assigned = 0
+            
             # Assign to rooms and time slots
             for slot_idx in range(company.earliest_slot, len(self.time_slots)):
+                # Check if we've reached the max number of sessions for this company
+                if sessions_assigned >= company.max_sessions:
+                    logger.info(f"Reached max sessions ({company.max_sessions}) for {company.name}, not assigning more slots")
+                    break
+                
                 # Skip this slot if it's in the company's blocked slots
                 if hasattr(company, 'blocked_slots') and slot_idx in company.blocked_slots:
                     logger.info(f"Skipping slot {slot_idx} for {company.name} as it's in blocked slots")
@@ -390,14 +401,22 @@ class SchedulerCore:
                     )
                     self.schedule[(company.unique_id, slot_idx)] = session
                     
+                    # Increment session count for this company
+                    sessions_assigned += 1
+                    company_session_count[company.unique_id] += 1
+                    
                     # Extra logging for Finanzamt
                     if "finanzamt" in company.name.lower():
                         logger.info(f"*** FINANZAMT ASSIGNMENT: {company.name} assigned to room {assigned_room} for slot {slot_letter} ***")
                     else:
-                        logger.info(f"Assigned {company.name} to room {assigned_room} for slot {slot_letter}")
+                        logger.info(f"Assigned {company.name} to room {assigned_room} for slot {slot_letter} ({sessions_assigned}/{company.max_sessions})")
                 else:
                     logger.warning(f"Could not find available room for {company.name} in slot {slot_letter}")
                     
+        # Log how many sessions were assigned to each company
+        for company in companies:
+            logger.info(f"Assigned {company_session_count[company.unique_id]}/{company.max_sessions} sessions to {company.name}")
+            
         logger.info(f"Assigned {len(self.schedule)} sessions in total")
         
     def _prepare_company_sessions(self):
