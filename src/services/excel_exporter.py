@@ -261,7 +261,7 @@ class ExcelExporter:
             
             # Add each excluded company
             for company_name in sorted(excluded_companies):
-                ws.cell(row=current_row, column=1, value=f"• {company_name}: Hat nicht die Mindestteilnehmerzahl erreicht")
+                ws.cell(row=current_row, column=1, value=f"• {company_name}: Kein Schülerinteresse")
                 current_row += 1
         
         # Adjust column widths
@@ -346,10 +346,10 @@ class ExcelExporter:
             
             current_row += 1
             
-            # Check if this company has reached its minimum participants
-            if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:
-                # If minimum participants not reached, just show a message
-                cell = ws.cell(row=current_row, column=2, value="Mindest Anzahl nicht erreicht")
+            # Check if the session has any students
+            if len(session.students) == 0:
+                # If no students, show a message
+                cell = ws.cell(row=current_row, column=2, value="Kein Schülerinteresse")
                 cell.border = self.thin_border
                 current_row += 1
             else:
@@ -392,6 +392,71 @@ class ExcelExporter:
         ws.column_dimensions['B'].width = 30  # Name
         ws.column_dimensions['C'].width = 15  # Klasse
         ws.column_dimensions['D'].width = 15  # Anwesend
+        
+        # Save the workbook
+        wb.save(filepath)
+        return True
+        
+    def export_room_list(self, filepath: str, rooms: List[str], room_capacities: Dict[str, int]):
+        """
+        Export room list with capacities to an Excel file
+        
+        Args:
+            filepath: The path to save the Excel file to
+            rooms: List of room names
+            room_capacities: Dictionary mapping room names to their capacities
+        """
+        # Create the directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        # Create a new workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Raumliste"
+        
+        # Add title and date
+        ws.cell(row=1, column=1, value="Raumliste")
+        ws.cell(row=1, column=1).font = Font(bold=True, size=16)
+        ws.cell(row=2, column=1, value=f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        
+        # Start row for the first room
+        current_row = 4
+        
+        # Add table headers
+        headers = ["Raum", "Kapazität"]
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=current_row, column=col, value=header)
+            cell.fill = self.header_fill
+            cell.font = self.header_font
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = self.thin_border
+        
+        current_row += 1
+        
+        # Add rows for each room
+        for row_idx, room_name in enumerate(sorted(rooms)):
+            # Apply alternating row colors
+            row_fill = self.alt_row_fill if row_idx % 2 == 0 else None
+            
+            # Add room name
+            cell = ws.cell(row=current_row, column=1, value=room_name)
+            if row_fill:
+                cell.fill = row_fill
+            cell.border = self.thin_border
+            
+            # Add capacity
+            capacity = room_capacities.get(room_name, 30)  # Default to 30 if not specified
+            cell = ws.cell(row=current_row, column=2, value=capacity)
+            if row_fill:
+                cell.fill = row_fill
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = self.thin_border
+            
+            current_row += 1
+        
+        # Adjust column widths
+        ws.column_dimensions['A'].width = 30  # Raum
+        ws.column_dimensions['B'].width = 15  # Kapazität
         
         # Save the workbook
         wb.save(filepath)

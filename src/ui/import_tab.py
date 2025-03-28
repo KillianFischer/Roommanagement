@@ -136,7 +136,7 @@ class ImportsTab:
         self.companies_preview.configure(yscrollcommand=companies_scrollbar.set)
         
         # Setup initial empty tree with styling
-        self.app.setup_preview_tree(self.companies_preview, ["Unternehmen", "Fachrichtung", "Max. Teilnehmer", "Min. Teilnehmer", "Frühester Zeitpunkt"])
+        self.app.setup_preview_tree(self.companies_preview, ["Unternehmen", "Fachrichtung", "Max. Teilnehmer", "Max. Veranstaltungen", "Frühester Zeitpunkt"])
 
         self.companies_preview.grid(row=0, column=0, sticky="nsew")
         companies_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -178,7 +178,7 @@ class ImportsTab:
         self.rooms_preview.configure(yscrollcommand=rooms_scrollbar.set)
         
         # Setup initial empty tree with styling
-        self.app.setup_preview_tree(self.rooms_preview, ["Raum"])
+        self.app.setup_preview_tree(self.rooms_preview, ["Raum", "Kapazität"])
 
         self.rooms_preview.grid(row=0, column=0, sticky="nsew")
         rooms_scrollbar.grid(row=0, column=1, sticky="ns")
@@ -252,24 +252,30 @@ class ImportsTab:
                 df = pd.read_excel(file_path)
                 df.columns = df.columns.str.strip()
                 
-                # Handle different column names for minimum participants
-                if "Min." in df.columns and "Min. Teilnehmer" not in df.columns:
-                    # Rename "Min." to "Min. Teilnehmer"
-                    df = df.rename(columns={"Min.": "Min. Teilnehmer"})
+                # Check for Min. column being used instead of full name
+                if "Min." in df.columns and "Max. Veranstaltungen" not in df.columns:
+                    # Rename "Min." to "Max. Veranstaltungen"
+                    df = df.rename(columns={"Min.": "Max. Veranstaltungen"})
                 
+                # For backward compatibility
+                if "Min. Teilnehmer" in df.columns and "Max. Veranstaltungen" not in df.columns:
+                    # Rename "Min. Teilnehmer" to "Max. Veranstaltungen"
+                    df = df.rename(columns={"Min. Teilnehmer": "Max. Veranstaltungen"})
+
+                # Get required columns
+                required = [
+                    "Unternehmen",
+                    "Max. Teilnehmer",
+                    "Max. Veranstaltungen",
+                    "Frühester Zeitpunkt",
+                ]
+
                 if self.scheduler.load_companies(df):
                     self.companies_status.config(
                         text=f"Imported: {os.path.basename(file_path)}",
                     )
-                    cols = [
-                        "Unternehmen",
-                        "Fachrichtung",
-                        "Max. Teilnehmer",
-                        "Min. Teilnehmer",
-                        "Frühester Zeitpunkt",
-                    ]
-                    self.app.setup_preview_tree(self.companies_preview, cols)
-                    self.app.update_preview(self.companies_preview, df, cols)
+                    self.app.setup_preview_tree(self.companies_preview, required)
+                    self.app.update_preview(self.companies_preview, df, required)
                 else:
                     self.companies_status.config(
                         text="Ungültiges Format",
@@ -283,20 +289,46 @@ class ImportsTab:
         file_path = self.get_import_file("ROOM_LIST", "Import Room List", auto_mode)
         if file_path:
             try:
+                # Read Excel file, assuming it might not have header row
                 df = pd.read_excel(file_path, header=None)
+                
+                # If the file has headers (first row contains "Raum"), use them
+                if len(df.columns) >= 1 and isinstance(df.iloc[0, 0], str) and df.iloc[0, 0].lower() in ["raum", "room"]:
+                    # The file has headers - reread with headers
+                    df = pd.read_excel(file_path)
+                    
+                    # Make sure we have the right column names
+                    if "Raum" not in df.columns and "Room" in df.columns:
+                        df = df.rename(columns={"Room": "Raum"})
+                    if "Kapazität" not in df.columns and "Kapazitaet" in df.columns:
+                        df = df.rename(columns={"Kapazitaet": "Kapazität"})
+                    if "Kapazität" not in df.columns and "Capacity" in df.columns:
+                        df = df.rename(columns={"Capacity": "Kapazität"})
+                else:
+                    # No headers - assign our own column names
+                    column_names = ["Raum"]
+                    if len(df.columns) >= 2:
+                        column_names.append("Kapazität")
+                    
+                    df.columns = column_names
+                
                 if self.scheduler.load_rooms(df):
                     self.rooms_status.config(
                         text=f"Imported: {os.path.basename(file_path)}",
                     )
-                    self.app.setup_preview_tree(self.rooms_preview, ["Raum"])
-                    self.app.update_preview(
-                        self.rooms_preview,
-                        df.rename(columns={df.columns[0]: "Raum"}),
-                        ["Raum"],
-                    )
+                    
+                    # Determine the columns to display in preview
+                    preview_columns = ["Raum"]
+                    if "Kapazität" in df.columns:
+                        preview_columns.append("Kapazität")
+                    
+                    self.app.setup_preview_tree(self.rooms_preview, preview_columns)
+                    self.app.update_preview(self.rooms_preview, df, preview_columns)
                 else:
                     self.rooms_status.config(text="Ungültiges Format", foreground="red")
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 self.rooms_status.config(text=f"Error: {str(e)}", foreground="red")
                 
     def auto_import_files(self):
@@ -308,17 +340,42 @@ class ImportsTab:
             rooms_file = os.path.join(self.app.import_folder, os.getenv("ROOM_LIST"))
             if os.path.exists(rooms_file):
                 print(f"Loading rooms from {rooms_file}")
-                df = pd.read_excel(rooms_file, header=None)
+                # Try to read the file first to determine if it has headers
+                temp_df = pd.read_excel(rooms_file, header=None)
+                
+                # If the file has headers (first row contains "Raum"), use them
+                if len(temp_df.columns) >= 1 and isinstance(temp_df.iloc[0, 0], str) and temp_df.iloc[0, 0].lower() in ["raum", "room"]:
+                    # The file has headers - reread with headers
+                    df = pd.read_excel(rooms_file)
+                    
+                    # Make sure we have the right column names
+                    if "Raum" not in df.columns and "Room" in df.columns:
+                        df = df.rename(columns={"Room": "Raum"})
+                    if "Kapazität" not in df.columns and "Kapazitaet" in df.columns:
+                        df = df.rename(columns={"Kapazitaet": "Kapazität"})
+                    if "Kapazität" not in df.columns and "Capacity" in df.columns:
+                        df = df.rename(columns={"Capacity": "Kapazität"})
+                else:
+                    # No headers - assign our own column names
+                    df = temp_df
+                    column_names = ["Raum"]
+                    if len(df.columns) >= 2:
+                        column_names.append("Kapazität")
+                    
+                    df.columns = column_names
+                
                 if self.scheduler.load_rooms(df):
                     self.rooms_status.config(
                         text=f"Imported: {os.path.basename(rooms_file)}",
                     )
-                    self.app.setup_preview_tree(self.rooms_preview, ["Raum"])
-                    self.app.update_preview(
-                        self.rooms_preview,
-                        df.rename(columns={df.columns[0]: "Raum"}),
-                        ["Raum"],
-                    )
+                    
+                    # Determine the columns to display in preview
+                    preview_columns = ["Raum"]
+                    if "Kapazität" in df.columns:
+                        preview_columns.append("Kapazität")
+                    
+                    self.app.setup_preview_tree(self.rooms_preview, preview_columns)
+                    self.app.update_preview(self.rooms_preview, df, preview_columns)
                     print("Rooms imported successfully")
                 else:
                     print("Failed to import rooms: Invalid format")
@@ -332,24 +389,30 @@ class ImportsTab:
                 df = pd.read_excel(companies_file)
                 df.columns = df.columns.str.strip()
                 
-                # Handle different column names for minimum participants
-                if "Min." in df.columns and "Min. Teilnehmer" not in df.columns:
-                    # Rename "Min." to "Min. Teilnehmer"
-                    df = df.rename(columns={"Min.": "Min. Teilnehmer"})
+                # Check for Min. column being used instead of full name
+                if "Min." in df.columns and "Max. Veranstaltungen" not in df.columns:
+                    # Rename "Min." to "Max. Veranstaltungen"
+                    df = df.rename(columns={"Min.": "Max. Veranstaltungen"})
                 
+                # For backward compatibility
+                if "Min. Teilnehmer" in df.columns and "Max. Veranstaltungen" not in df.columns:
+                    # Rename "Min. Teilnehmer" to "Max. Veranstaltungen"
+                    df = df.rename(columns={"Min. Teilnehmer": "Max. Veranstaltungen"})
+
+                # Get required columns
+                required = [
+                    "Unternehmen",
+                    "Max. Teilnehmer",
+                    "Max. Veranstaltungen",
+                    "Frühester Zeitpunkt",
+                ]
+
                 if self.scheduler.load_companies(df):
                     self.companies_status.config(
                         text=f"Imported: {os.path.basename(companies_file)}",
                     )
-                    cols = [
-                        "Unternehmen",
-                        "Fachrichtung",
-                        "Max. Teilnehmer",
-                        "Min. Teilnehmer",
-                        "Frühester Zeitpunkt",
-                    ]
-                    self.app.setup_preview_tree(self.companies_preview, cols)
-                    self.app.update_preview(self.companies_preview, df, cols)
+                    self.app.setup_preview_tree(self.companies_preview, required)
+                    self.app.update_preview(self.companies_preview, df, required)
                     print("Companies imported successfully")
                 else:
                     print("Failed to import companies: Invalid format")

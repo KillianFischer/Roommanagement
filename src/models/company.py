@@ -6,7 +6,7 @@ import pandas as pd
 class Company:
     name: str
     capacity: int
-    min_participants: int
+    max_sessions: int
     earliest_slot: int
     blocked_slots: List[int]
     field: str = ""  # Add field property with default empty string
@@ -37,12 +37,15 @@ class Company:
                 
             max_teilnehmer = int(row["Max. Teilnehmer"])
             
-            # Min. Teilnehmer column name
-            if "Min. Teilnehmer" in df.columns:
-                min_teilnehmer = int(row["Min. Teilnehmer"])
+            # Check for max sessions column
+            if "Max. Veranstaltungen" in df.columns:
+                max_sessions = int(row["Max. Veranstaltungen"])
+            # Legacy support for Min. Teilnehmer
+            elif "Min. Teilnehmer" in df.columns:
+                max_sessions = int(row["Min. Teilnehmer"])
             else:
-                # Default to 0 if no minimum column is found
-                min_teilnehmer = 0
+                # Default to 5 (one for each time slot) if no column is found
+                max_sessions = 5
                 
             if pd.isna(row["Frühester Zeitpunkt"]):
                 earliest = 0
@@ -54,7 +57,7 @@ class Company:
                 cls(
                     name=comp_name,
                     capacity=max_teilnehmer,
-                    min_participants=min_teilnehmer,
+                    max_sessions=max_sessions,
                     earliest_slot=earliest,
                     blocked_slots=list(range(earliest)),
                     field=field,  # Add the field to the constructor

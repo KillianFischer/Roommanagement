@@ -115,8 +115,8 @@ class SchedulerCore:
             _, number_to_company = self._create_company_mappings()
             all_wish_counts, first_wish_counts = self._count_student_wishes(number_to_company)
             
-            # Filter companies by minimum participants
-            filtered_companies, excluded_companies = self._filter_companies_by_min_participants(all_wish_counts)
+            # Filter companies by student interest 
+            filtered_companies, excluded_companies = self._filter_companies_by_interest(all_wish_counts)
             
             # Sort companies by popularity (first wish count)
             sorted_companies = sorted(
@@ -221,13 +221,14 @@ class SchedulerCore:
                 
         return all_wish_counts, first_wish_counts
         
-    def _filter_companies_by_min_participants(self, all_wish_counts):
+    def _filter_companies_by_interest(self, all_wish_counts):
+        """Filter companies based on student interest (previously min_participants)"""
         excluded_companies = []
         filtered_companies = []
         for company in self.companies:
             normalized_name = company.name.strip()
             wish_count = all_wish_counts.get(normalized_name, 0)
-            if wish_count >= company.min_participants:
+            if wish_count > 0:  # Now we only filter out companies with no interest
                 filtered_companies.append(company)
             else:
                 excluded_companies.append(company)
@@ -1064,15 +1065,15 @@ class SchedulerCore:
         return number_to_company 
 
     def _handle_excluded_companies(self, excluded_companies):
-        """Handle companies that don't meet minimum participant requirements"""
+        """Handle companies that don't have any student interest"""
         for company in excluded_companies:
             session = CompanySession(
                 company=company,
-                room="Hat nicht die Min. Teilnehmer erreicht",
+                room="Kein Schülerinteresse",  # Updated message
                 time_slot="-",
                 time_range="-",
             )
-            self.schedule[(company.unique_id, -1)] = session 
+            self.schedule[(company.unique_id, -1)] = session
 
     def debug_room_assignments(self) -> bool:
         """Validate the generated schedule and check for conflicts"""

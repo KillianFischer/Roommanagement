@@ -247,7 +247,7 @@ class PDFExporter:
             
             # Create a bullet list of excluded companies
             for company_name in sorted(excluded_companies):
-                content.append(Paragraph(f"• {company_name}: Hat nicht die Mindestteilnehmerzahl erreicht", 
+                content.append(Paragraph(f"• {company_name}: Kein Schülerinteresse", 
                                        self.styles["CustomNormal"]))
             
         # Build the PDF

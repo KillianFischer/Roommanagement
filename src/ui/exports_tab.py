@@ -49,12 +49,19 @@ class ExportsTab:
         ttk.Button(
             button_frame,
             text="Als PDF exportieren",
-            command=self.export_student_schedules,
+            command=self.export_student_schedules_pdf,
         ).grid(row=0, column=1, pady=5, padx=5, sticky="e")
+        
+        ttk.Button(
+            button_frame,
+            text="Als Excel exportieren",
+            command=self.export_student_schedules_excel,
+        ).grid(row=0, column=2, pady=5, padx=5, sticky="e")
         
         # Configure button frame
         button_frame.columnconfigure(0, weight=1)
-        button_frame.columnconfigure(1, weight=1)
+        button_frame.columnconfigure(1, weight=0)
+        button_frame.columnconfigure(2, weight=0)
 
         # Canvas and scrollbar for the preview - take full width
         self.student_preview_canvas = tk.Canvas(self.student_schedules_frame, width=800)
@@ -115,12 +122,19 @@ class ExportsTab:
         ttk.Button(
             button_frame,
             text="Als PDF exportieren",
-            command=self.export_attendance_lists,
+            command=self.export_attendance_lists_pdf,
         ).grid(row=0, column=1, pady=5, padx=5, sticky="e")
+        
+        ttk.Button(
+            button_frame,
+            text="Als Excel exportieren",
+            command=self.export_attendance_lists_excel,
+        ).grid(row=0, column=2, pady=5, padx=5, sticky="e")
         
         # Configure button frame
         button_frame.columnconfigure(0, weight=1)
-        button_frame.columnconfigure(1, weight=1)
+        button_frame.columnconfigure(1, weight=0)
+        button_frame.columnconfigure(2, weight=0)
 
         # Canvas and scrollbar for the preview - take full width
         self.attendance_preview_canvas = tk.Canvas(self.attendance_lists_frame, width=800)
@@ -206,14 +220,14 @@ class ExportsTab:
         if filepath:
             # Determine export type based on file extension
             if filepath.lower().endswith('.pdf'):
-                if self.scheduler.export_attendance_lists_pdf(filepath):
+                if self.scheduler.export_attendance_lists_pdf(filepath, preview_mode=False):
                     self.app.clear_error()
             elif filepath.lower().endswith('.xlsx'):
-                if self.scheduler.export_attendance_lists_excel(filepath):
+                if self.scheduler.export_attendance_lists_excel(filepath, preview_mode=False):
                     self.app.clear_error()
             else:
                 # Default to Excel if extension is unclear
-                if self.scheduler.export_attendance_lists_excel(filepath + '.xlsx'):
+                if self.scheduler.export_attendance_lists_excel(filepath + '.xlsx', preview_mode=False):
                     self.app.clear_error()
 
     def preview_student_schedules(self):
@@ -428,9 +442,9 @@ class ExportsTab:
                     header.grid(row=row, column=col, padx=5, pady=5, sticky="w")
                 row += 1
 
-                # Check if this company has reached its minimum participants
-                if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:
-                    # If minimum participants not reached, just show a message
+                # Check if the session has any students
+                if len(session.students) == 0:
+                    # If no students, show a message
                     ttk.Label(
                         self.attendance_preview_frame,
                         text="",
@@ -438,7 +452,7 @@ class ExportsTab:
                     
                     warning_label = ttk.Label(
                         self.attendance_preview_frame,
-                        text="Mindest Anzahl nicht erreicht",
+                        text="Kein Schülerinteresse",
                         font=("Helvetica", 10, "bold")
                     )
                     # Use foreground color if possible (ttk needs style)
@@ -448,20 +462,6 @@ class ExportsTab:
                         pass
                         
                     warning_label.grid(row=row, column=1, columnspan=3, padx=5, pady=10, sticky="w")
-                    row += 1
-                elif len(session.students) == 0:
-                    # No students assigned
-                    ttk.Label(
-                        self.attendance_preview_frame,
-                        text="",
-                    ).grid(row=row, column=0, padx=5, pady=2, sticky="w")
-                    
-                    empty_label = ttk.Label(
-                        self.attendance_preview_frame,
-                        text="Keine Teilnehmer",
-                        font=("Helvetica", 10)
-                    )
-                    empty_label.grid(row=row, column=1, columnspan=3, padx=5, pady=10, sticky="w")
                     row += 1
                 else:
                     # Student rows - sort by name
@@ -529,9 +529,16 @@ class ExportsTab:
             command=self._export_fulfillment_excel,
         ).grid(row=0, column=1, pady=5, padx=5, sticky="e")
         
+        ttk.Button(
+            button_frame,
+            text="Raumliste exportieren",
+            command=self.export_room_list,
+        ).grid(row=0, column=2, pady=5, padx=5, sticky="e")
+        
         # Configure button frame
         button_frame.columnconfigure(0, weight=1)
-        button_frame.columnconfigure(1, weight=1)
+        button_frame.columnconfigure(1, weight=0)
+        button_frame.columnconfigure(2, weight=0)
         
         # Informational text
         info_frame = ttk.Frame(self.fulfillment_frame, padding=10)
@@ -993,8 +1000,15 @@ class ExportsTab:
             self.app.show_error("Bitte erst den Zeitplan generieren!")
             return
             
-        messagebox.showinfo("Information", "Diese Funktion ist aktuell nicht verfügbar.")
-        # TODO: Implement room schedule export functionality
+        # Open file save dialog
+        filepath = filedialog.asksaveasfilename(
+            title="Raumbelegungsplan speichern",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+        )
+        if filepath:
+            messagebox.showinfo("Information", "Diese Funktion wird in einer zukünftigen Version verfügbar sein.")
+            # TODO: Implement room schedule export functionality in a future version
 
     def export_all(self):
         self.app.clear_error()
@@ -1028,14 +1042,16 @@ class ExportsTab:
             company_file_xlsx = os.path.join(temp_dir, "Unternehmen_Übersicht.xlsx")
             attendance_file_pdf = os.path.join(temp_dir, "Anwesenheitslisten.pdf")
             attendance_file_xlsx = os.path.join(temp_dir, "Anwesenheitslisten.xlsx")
+            room_list_xlsx = os.path.join(temp_dir, "Raumliste.xlsx")
             
             # Export all files
             self.scheduler.export_student_schedules_pdf(student_file_pdf)
             self.scheduler.export_student_schedules_excel(student_file_xlsx)
             self.scheduler.export_company_overview_pdf(company_file_pdf)
             self.scheduler.export_company_overview_excel(company_file_xlsx)
-            self.scheduler.export_attendance_lists_pdf(attendance_file_pdf)
-            self.scheduler.export_attendance_lists_excel(attendance_file_xlsx)
+            self.scheduler.export_attendance_lists_pdf(attendance_file_pdf, preview_mode=False)
+            self.scheduler.export_attendance_lists_excel(attendance_file_xlsx, preview_mode=False)
+            self.scheduler.export_room_list_excel(room_list_xlsx)
             
             # Create fulfillment report
             fulfillment_file = os.path.join(temp_dir, "Erfüllungsbericht.xlsx")
@@ -1076,7 +1092,25 @@ class ExportsTab:
                 total_wishes = sum(summary_data["Anzahl"])
                 summary_df.loc["Total"] = ["Gesamt", total_wishes, "", total_points]
                 
-                # Export summary
+                # Add the overall statistics
+                summary_df2 = pd.DataFrame({
+                    "Metrik": [
+                        "Gesamterfüllungsgrad (gewichtet)", 
+                        "Schüler mit mindestens einem Wunsch",
+                        "Schüler mit einem Top-3 Wunsch",
+                        "Schüler mit allen 5 Zeitslots",
+                        "Anzahl Schüler gesamt"
+                    ],
+                    "Wert": [
+                        f"{stats.get('average_weighted_fulfillment', 0):.2f}%",
+                        f"{stats.get('students_with_at_least_one_wish_pct', 0):.2f}% ({stats.get('students_with_at_least_one_wish', 0)} von {stats.get('total_students', 0)})",
+                        f"{stats.get('students_with_top_three_wishes_pct', 0):.2f}% ({stats.get('students_with_top_three_wishes', 0)} von {stats.get('total_students', 0)})",
+                        f"{stats.get('students_with_all_five_sessions_pct', 0):.2f}% ({stats.get('students_with_all_five_sessions', 0)} von {stats.get('total_students', 0)})",
+                        str(stats.get('total_students', 0))
+                    ]
+                })
+                
+                # Export summaries
                 summary_df.to_excel(writer, sheet_name="Zusammenfassung", index=False)
             
             # Create the ZIP file containing all exports
@@ -1097,3 +1131,206 @@ class ExportsTab:
             import traceback
             traceback.print_exc()
             messagebox.showerror("Error", f"Fehler beim Exportieren: {str(e)}") 
+
+    def export_room_list(self):
+        self.app.clear_error()
+        # Open file save dialog
+        filepath = filedialog.asksaveasfilename(
+            title="Raumliste speichern",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+        )
+        if filepath:
+            if self.scheduler.export_room_list_excel(filepath):
+                self.app.clear_error()
+
+    def _setup_exports_section(self):
+        """Set up the exports section tab with buttons for all export types"""
+        self.exports_overview_frame = ttk.Frame(self.export_notebook)
+        self.export_notebook.add(self.exports_overview_frame, text="Exporte")
+        
+        # Main exports frame with label frame
+        exports_frame = ttk.LabelFrame(self.exports_overview_frame, text="Exportieren")
+        exports_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=5)
+        
+        # Instructions label
+        ttk.Label(
+            exports_frame,
+            text="Nachdem der Zeitplan generiert wurde, können Sie verschiedene Exporte erstellen:",
+            font=("Helvetica", 11),
+            wraplength=600
+        ).grid(row=0, column=0, columnspan=3, padx=5, pady=10, sticky="w")
+        
+        # Column 0: Student schedules
+        ttk.Label(exports_frame, text="Schülerzeitpläne:").grid(
+            row=1, column=0, padx=5, pady=5, sticky="w"
+        )
+        ttk.Button(
+            exports_frame,
+            text="PDF",
+            command=self.export_student_schedules_pdf,
+        ).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Button(
+            exports_frame,
+            text="Excel",
+            command=self.export_student_schedules_excel,
+        ).grid(row=1, column=2, padx=5, pady=5)
+        
+        # Column 1: Company overview
+        ttk.Label(exports_frame, text="Unternehmensübersicht:").grid(
+            row=2, column=0, padx=5, pady=5, sticky="w"
+        )
+        ttk.Button(
+            exports_frame,
+            text="PDF",
+            command=self.export_company_overview_pdf,
+        ).grid(row=2, column=1, padx=5, pady=5)
+        ttk.Button(
+            exports_frame,
+            text="Excel",
+            command=self.export_company_overview_excel,
+        ).grid(row=2, column=2, padx=5, pady=5)
+        
+        # Row 2: Attendance lists
+        ttk.Label(exports_frame, text="Anwesenheitslisten:").grid(
+            row=3, column=0, padx=5, pady=5, sticky="w"
+        )
+        ttk.Button(
+            exports_frame,
+            text="PDF",
+            command=self.export_attendance_lists_pdf,
+        ).grid(row=3, column=1, padx=5, pady=5)
+        ttk.Button(
+            exports_frame,
+            text="Excel",
+            command=self.export_attendance_lists_excel,
+        ).grid(row=3, column=2, padx=5, pady=5)
+        
+        # Row 3: Room list
+        ttk.Label(exports_frame, text="Raumliste:").grid(
+            row=4, column=0, padx=5, pady=5, sticky="w"
+        )
+        ttk.Button(
+            exports_frame,
+            text="Excel",
+            command=self.export_room_list,
+        ).grid(row=4, column=1, padx=5, pady=5)
+        
+        # Row 4: Room schedule (currently disabled)
+        ttk.Label(exports_frame, text="Raumbelegungsplan:").grid(
+            row=5, column=0, padx=5, pady=5, sticky="w"
+        )
+        ttk.Button(
+            exports_frame,
+            text="Excel",
+            command=self.export_room_schedule,
+        ).grid(row=5, column=1, padx=5, pady=5)
+        
+        # Row 5: All-in-one export
+        ttk.Label(exports_frame, text="Alles exportieren:").grid(
+            row=6, column=0, padx=5, pady=5, sticky="w"
+        )
+        ttk.Button(
+            exports_frame,
+            text="ZIP",
+            command=self.export_all,
+        ).grid(row=6, column=1, padx=5, pady=5)
+        
+        # Configure column weights
+        exports_frame.columnconfigure(0, weight=1)
+        exports_frame.columnconfigure(1, weight=0)
+        exports_frame.columnconfigure(2, weight=0)
+        
+        # Configure frame weights
+        self.exports_overview_frame.columnconfigure(0, weight=1)
+        self.exports_overview_frame.rowconfigure(0, weight=1) 
+
+    def export_student_schedules_pdf(self):
+        self.app.clear_error()
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".pdf", 
+            filetypes=[("PDF files", "*.pdf")]
+        )
+        
+        if filepath:
+            if self.scheduler.export_student_schedules_pdf(filepath):
+                self.app.clear_error()
+
+    def export_student_schedules_excel(self):
+        self.app.clear_error()
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".xlsx", 
+            filetypes=[("Excel files", "*.xlsx")]
+        )
+        
+        if filepath:
+            if self.scheduler.export_student_schedules_excel(filepath):
+                self.app.clear_error()
+
+    def export_company_overview_pdf(self):
+        self.app.clear_error()
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".pdf", 
+            filetypes=[("PDF files", "*.pdf")]
+        )
+        
+        if filepath:
+            if self.scheduler.export_company_overview_pdf(filepath):
+                self.app.clear_error()
+
+    def export_company_overview_excel(self):
+        self.app.clear_error()
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".xlsx", 
+            filetypes=[("Excel files", "*.xlsx")]
+        )
+        
+        if filepath:
+            if self.scheduler.export_company_overview_excel(filepath):
+                self.app.clear_error()
+
+    def export_attendance_lists_pdf(self):
+        self.app.clear_error()
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".pdf", 
+            filetypes=[("PDF files", "*.pdf")]
+        )
+        
+        if filepath:
+            if self.scheduler.export_attendance_lists_pdf(filepath, preview_mode=False):
+                self.app.clear_error()
+
+    def export_attendance_lists_excel(self):
+        self.app.clear_error()
+        if not self.scheduler.get_schedule():
+            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            return
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".xlsx", 
+            filetypes=[("Excel files", "*.xlsx")]
+        )
+        
+        if filepath:
+            if self.scheduler.export_attendance_lists_excel(filepath, preview_mode=False):
+                self.app.clear_error() 

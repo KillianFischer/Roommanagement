@@ -81,10 +81,10 @@ class AttendanceExporter:
 
                 data = [["Nr.", "Name", "Klasse", "Anwesend"]]
                 
-                # Check if this company has reached its minimum participants
-                if session.company.min_participants > 0 and len(session.students) < session.company.min_participants:
-                    # If minimum participants not reached, just show a message
-                    data.append(["", "Mindest Anzahl nicht erreicht", "", ""])
+                # Check if the session has any students
+                if len(session.students) == 0:
+                    # If no students, show the "no interest" message
+                    data.append(["", "Kein Schülerinteresse", "", ""])
                 else:
                     # Add student rows
                     for i, student in enumerate(

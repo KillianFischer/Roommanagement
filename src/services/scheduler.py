@@ -39,7 +39,7 @@ class Scheduler:
         required_columns = [
             "Unternehmen",
             "Max. Teilnehmer",
-            "Min. Teilnehmer",
+            "Max. Veranstaltungen",
             "Frühester Zeitpunkt",
         ]
 
@@ -51,6 +51,9 @@ class Scheduler:
         # Check required columns
         for col in required_columns:
             if col not in df.columns:
+                # Special case for backward compatibility
+                if col == "Max. Veranstaltungen" and "Min. Teilnehmer" in df.columns:
+                    continue  # Allow using Min. Teilnehmer for backward compatibility
                 self.on_error(f"Erforderliche Spalte fehlt: {col}")
                 return False
 
@@ -62,7 +65,13 @@ class Scheduler:
                 field = str(row[field_column]).strip() if field_column and pd.notna(row[field_column]) else ""
                 
                 max_participants = int(row["Max. Teilnehmer"])
-                min_participants = int(row["Min. Teilnehmer"])
+                
+                # Get max sessions (previously min_participants)
+                if "Max. Veranstaltungen" in df.columns:
+                    max_sessions = int(row["Max. Veranstaltungen"])
+                else:
+                    # Backward compatibility with old format
+                    max_sessions = int(row["Min. Teilnehmer"])
                 
                 # Handle earliest slot letter representation (A, B, C, ...)
                 earliest_slot = 0  # Default to A (first slot)
@@ -83,7 +92,7 @@ class Scheduler:
                         name=name,
                         field=field,
                         capacity=max_participants,
-                        min_participants=min_participants,
+                        max_sessions=max_sessions,
                         earliest_slot=earliest_slot,
                         fixed_room=fixed_room,
                     )
@@ -326,46 +335,31 @@ class Scheduler:
             return False
 
     def export_attendance_lists_pdf(self, filepath: str, preview_mode=False) -> bool:
-        """Export attendance lists as PDF"""
+        """Export attendance lists to PDF"""
         self.clear_error()
-        
         if not self.core.schedule:
-            self.on_error("Bitte zuerst den Zeitplan generieren.")
+            self.on_error("Bitte erst den Zeitplan generieren!")
             return False
             
-        try:
-            # Use the attendance exporter to export attendance lists
-            self.attendance_exporter.export_attendance_lists(
-                filepath=filepath,
-                schedule=self.core.schedule,
-                time_slots=self.time_slots,
-                preview_mode=preview_mode
-            )
-            return True
-        except Exception as e:
-            self.on_error(f"Fehler beim Exportieren: {str(e)}")
-            return False
+        return self.attendance_exporter.export_attendance_lists(filepath, self.core.schedule, self.core.time_slots, preview_mode=preview_mode)
             
     def export_attendance_lists_excel(self, filepath: str, preview_mode=False) -> bool:
-        """Export attendance lists as Excel"""
+        """Export attendance lists to Excel"""
         self.clear_error()
-        
         if not self.core.schedule:
-            self.on_error("Bitte zuerst den Zeitplan generieren.")
+            self.on_error("Bitte erst den Zeitplan generieren!")
             return False
             
-        try:
-            # Use the Excel exporter to export attendance lists
-            self.excel_exporter.export_attendance_lists(
-                filepath=filepath,
-                schedule=self.core.schedule,
-                time_slots=self.time_slots,
-                preview_mode=preview_mode
-            )
-            return True
-        except Exception as e:
-            self.on_error(f"Fehler beim Exportieren: {str(e)}")
+        return self.excel_exporter.export_attendance_lists(filepath, self.core.schedule, self.core.time_slots, preview_mode=preview_mode)
+        
+    def export_room_list_excel(self, filepath: str) -> bool:
+        """Export room list with capacities to Excel"""
+        self.clear_error()
+        if not self.core.rooms or not self.core.room_capacities:
+            self.on_error("Bitte erst die Räume importieren!")
             return False
+            
+        return self.excel_exporter.export_room_list(filepath, self.core.rooms, self.core.room_capacities)
 
     def get_student_schedules(self):
         """Get schedules organized by student"""
@@ -464,12 +458,12 @@ class Scheduler:
 
 class Company:
     def __init__(
-        self, name, field="", capacity=0, min_participants=0, earliest_slot=0, blocked_slots=None, fixed_room=None
+        self, name, field="", capacity=0, max_sessions=0, earliest_slot=0, blocked_slots=None, fixed_room=None
     ):
         self.name = name
         self.field = field
         self.capacity = capacity
-        self.min_participants = min_participants
+        self.max_sessions = max_sessions
         self.earliest_slot = earliest_slot
         self.blocked_slots = blocked_slots or []
         self.fixed_room = fixed_room  # Allow specifying a fixed room for certain companies
