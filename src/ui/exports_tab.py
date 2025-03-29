@@ -557,29 +557,30 @@ class ExportsTab:
             font=("Helvetica", 11, "bold"),
         ).grid(row=1, column=0, sticky="w", pady=(10, 5))
         
-        points_text = (
-            "1. Wunsch: 5 Punkte\n"
-            "2. Wunsch: 4 Punkte\n"
-            "3. Wunsch: 3 Punkte\n"
-            "4. Wunsch: 2 Punkte\n"
-            "5. Wunsch: 1 Punkt\n"
+        # Update point distribution to show all 6 wishes
+        points_text = "\n".join([
+            "1. Wunsch: 6 Punkte",
+            "2. Wunsch: 5 Punkte",
+            "3. Wunsch: 4 Punkte",
+            "4. Wunsch: 3 Punkte", 
+            "5. Wunsch: 2 Punkte",
+            "6. Wunsch: 1 Punkt",
             "Kein Wunsch: 0 Punkte"
-        )
+        ])
         
         ttk.Label(
             info_frame,
             text=points_text,
-            font=("Helvetica", 11),
-            justify="left",
-        ).grid(row=2, column=0, sticky="w")
+            font=("Helvetica", 10),
+        ).grid(row=2, column=0, sticky="w", pady=5)
         
         ttk.Label(
             info_frame,
-            text="Der Gesamterfüllungsgrad berechnet sich aus der Summe aller erzielten Punkte\n"
-            "geteilt durch die maximal mögliche Punktzahl (15 pro Schüler).",
-            font=("Helvetica", 11),
-            justify="left",
-        ).grid(row=3, column=0, sticky="w", pady=(10, 0))
+            text="Der Gesamterfüllungsgrad berechnet sich aus der erreichten Punktzahl " 
+                 "geteilt durch die maximal mögliche Punktzahl (21 Punkte pro Schüler).",
+            font=("Helvetica", 10),
+            wraplength=600,
+        ).grid(row=3, column=0, sticky="w", pady=5)
         
         # Create a frame to contain all statistics
         self.stats_container = ttk.Frame(self.fulfillment_frame)
@@ -674,6 +675,7 @@ class ExportsTab:
             ("3. Wunsch", stats.get("wish3_fulfilled", 0)),
             ("4. Wunsch", stats.get("wish4_fulfilled", 0)),
             ("5. Wunsch", stats.get("wish5_fulfilled", 0)),
+            ("6. Wunsch", stats.get("wish6_fulfilled", 0)),
             ("Kein Wunsch", stats.get("no_wish_fulfilled", 0))
         ]
         
@@ -705,7 +707,7 @@ class ExportsTab:
         # Populate student table
         if not student_df.empty:
             # Table headers
-            headers = ["ID", "Name", "Erfüllung %", "1.", "2.", "3.", "4.", "5.", "Keine"]
+            headers = ["ID", "Name", "Erfüllung %", "1.", "2.", "3.", "4.", "5.", "6.", "Keine"]
             
             # Create header row
             for col, header in enumerate(headers):
@@ -768,9 +770,15 @@ class ExportsTab:
                 
                 ttk.Label(
                     self.student_table,
-                    text=str(row["No Match"]),
+                    text=str(row["6th Wishes"]),
                     font=("Helvetica", 9)
                 ).grid(row=i, column=8, padx=5, pady=2, sticky="w")
+                
+                ttk.Label(
+                    self.student_table,
+                    text=str(row["No Match"]),
+                    font=("Helvetica", 9)
+                ).grid(row=i, column=9, padx=5, pady=2, sticky="w")
                 
                 # Add alternating row colors
                 if i % 2 == 0:
@@ -815,22 +823,24 @@ class ExportsTab:
                 
                 # Create a summary sheet
                 summary_data = {
-                    "Wunsch": ["1. Wunsch", "2. Wunsch", "3. Wunsch", "4. Wunsch", "5. Wunsch", "Kein Wunsch"],
+                    "Wunsch": ["1. Wunsch", "2. Wunsch", "3. Wunsch", "4. Wunsch", "5. Wunsch", "6. Wunsch", "Kein Wunsch"],
                     "Anzahl": [
                         stats.get("wish1_fulfilled", 0),
                         stats.get("wish2_fulfilled", 0),
                         stats.get("wish3_fulfilled", 0),
                         stats.get("wish4_fulfilled", 0),
                         stats.get("wish5_fulfilled", 0),
+                        stats.get("wish6_fulfilled", 0),
                         stats.get("no_wish_fulfilled", 0)
                     ],
-                    "Gewichtung": [5, 4, 3, 2, 1, 0],
+                    "Gewichtung": [6, 5, 4, 3, 2, 1, 0],
                     "Punkte": [
-                        5 * stats.get("wish1_fulfilled", 0),
-                        4 * stats.get("wish2_fulfilled", 0),
-                        3 * stats.get("wish3_fulfilled", 0), 
-                        2 * stats.get("wish4_fulfilled", 0),
-                        1 * stats.get("wish5_fulfilled", 0),
+                        6 * stats.get("wish1_fulfilled", 0),
+                        5 * stats.get("wish2_fulfilled", 0),
+                        4 * stats.get("wish3_fulfilled", 0), 
+                        3 * stats.get("wish4_fulfilled", 0),
+                        2 * stats.get("wish5_fulfilled", 0),
+                        1 * stats.get("wish6_fulfilled", 0),
                         0
                     ]
                 }
@@ -1065,22 +1075,24 @@ class ExportsTab:
                 
                 # Create a summary sheet
                 summary_data = {
-                    "Wunsch": ["1. Wunsch", "2. Wunsch", "3. Wunsch", "4. Wunsch", "5. Wunsch", "Kein Wunsch"],
+                    "Wunsch": ["1. Wunsch", "2. Wunsch", "3. Wunsch", "4. Wunsch", "5. Wunsch", "6. Wunsch", "Kein Wunsch"],
                     "Anzahl": [
                         stats.get("wish1_fulfilled", 0),
                         stats.get("wish2_fulfilled", 0),
                         stats.get("wish3_fulfilled", 0),
                         stats.get("wish4_fulfilled", 0),
                         stats.get("wish5_fulfilled", 0),
+                        stats.get("wish6_fulfilled", 0),
                         stats.get("no_wish_fulfilled", 0)
                     ],
-                    "Gewichtung": [5, 4, 3, 2, 1, 0],
+                    "Gewichtung": [6, 5, 4, 3, 2, 1, 0],
                     "Punkte": [
-                        5 * stats.get("wish1_fulfilled", 0),
-                        4 * stats.get("wish2_fulfilled", 0),
-                        3 * stats.get("wish3_fulfilled", 0), 
-                        2 * stats.get("wish4_fulfilled", 0),
-                        1 * stats.get("wish5_fulfilled", 0),
+                        6 * stats.get("wish1_fulfilled", 0),
+                        5 * stats.get("wish2_fulfilled", 0),
+                        4 * stats.get("wish3_fulfilled", 0), 
+                        3 * stats.get("wish4_fulfilled", 0),
+                        2 * stats.get("wish5_fulfilled", 0),
+                        1 * stats.get("wish6_fulfilled", 0),
                         0
                     ]
                 }

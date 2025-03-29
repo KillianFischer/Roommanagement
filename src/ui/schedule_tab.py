@@ -1,7 +1,5 @@
 import tkinter as tk
 from tkinter import ttk, filedialog
-import os
-
 
 class ScheduleTab:
     def __init__(self, parent, scheduler, app):

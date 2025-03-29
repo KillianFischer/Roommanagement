@@ -2,23 +2,14 @@ import pytest
 import pandas as pd
 import os
 import sys
-import random
 
 # Add the src directory
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))
 
-from services.scheduler import SchedulerService
-
 # Import folder
 IMPORT_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "import")
 
-@pytest.fixture
-def scheduler():
-    return SchedulerService()
-
-#
 # Sample data
-#
 @pytest.fixture
 def sample_student_data():
     return pd.DataFrame(
@@ -48,9 +39,7 @@ def sample_company_data():
 def sample_room_data():
     return pd.DataFrame({0: [101, 102, 103, "Aula", 104]})
 
-#
-# Real data
-#
+# Real tests
 @pytest.fixture
 def real_room_data():
     """Load the actual room data from the Excel file."""
@@ -69,9 +58,7 @@ def real_student_data():
     file_path = os.path.join(IMPORT_FOLDER, "BOT2_Wahl.xlsx")
     return pd.read_excel(file_path)
 
-#
 # Basic tests with sample data
-#
 def test_load_student_preferences(scheduler, sample_student_data):
     result = scheduler.load_student_preferences(sample_student_data)
     assert result == True

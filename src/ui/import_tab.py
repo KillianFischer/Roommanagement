@@ -8,7 +8,7 @@ class ImportsTab:
     def __init__(self, parent, scheduler, on_mousewheel, app):
         self.parent = parent
         self.scheduler = scheduler
-        self.app = app  # Reference to main app to access methods like show_error
+        self.app = app  # Reference to main app
         
         self.import_frame = ttk.Frame(parent)
         parent.add(self.import_frame, text="Daten importieren")
@@ -42,19 +42,14 @@ class ImportsTab:
             "<MouseWheel>", lambda e: on_mousewheel(e, self.import_canvas)
         )
 
-        # Student wishes section
         self._setup_student_section()
-        
-        # Company list
+
         self._setup_company_section()
         
-        # Room list
         self._setup_room_section()
 
-        # import sections layout
         self.import_sections.columnconfigure(0, weight=1)
 
-        # import frame layout
         self.import_frame.columnconfigure(0, weight=1)
         self.import_frame.rowconfigure(0, weight=1)
         
@@ -79,7 +74,6 @@ class ImportsTab:
         )
         self.preferences_status.grid(row=1, column=1, pady=2, sticky="w")
 
-        # frame for preview
         preview_frame = ttk.Frame(section_frame)
         preview_frame.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky="nsew")
 
@@ -93,7 +87,6 @@ class ImportsTab:
         )
         self.preferences_preview.configure(yscrollcommand=preferences_scrollbar.set)
         
-        # Setup initial empty tree with styling
         self.app.setup_preview_tree(self.preferences_preview, ["Klasse", "Name", "Vorname", "Wahl 1", "Wahl 2", "Wahl 3", "Wahl 4", "Wahl 5", "Wahl 6"])
 
         self.preferences_preview.grid(row=0, column=0, sticky="nsew")
@@ -123,7 +116,6 @@ class ImportsTab:
         )
         self.companies_status.grid(row=1, column=1, pady=2, sticky="w")
 
-        # frame for preview
         preview_frame = ttk.Frame(section_frame)
         preview_frame.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky="nsew")
 
@@ -135,7 +127,6 @@ class ImportsTab:
         )
         self.companies_preview.configure(yscrollcommand=companies_scrollbar.set)
         
-        # Setup initial empty tree with styling
         self.app.setup_preview_tree(self.companies_preview, ["Unternehmen", "Fachrichtung", "Max. Teilnehmer", "Max. Veranstaltungen", "Frühester Zeitpunkt"])
 
         self.companies_preview.grid(row=0, column=0, sticky="nsew")
@@ -340,7 +331,7 @@ class ImportsTab:
             rooms_file = os.path.join(self.app.import_folder, os.getenv("ROOM_LIST"))
             if os.path.exists(rooms_file):
                 print(f"Loading rooms from {rooms_file}")
-                # Try to read the file first to determine if it has headers
+                # Check if excel has headers
                 temp_df = pd.read_excel(rooms_file, header=None)
                 
                 # If the file has headers (first row contains "Raum"), use them

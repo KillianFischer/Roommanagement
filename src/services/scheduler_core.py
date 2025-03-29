@@ -1,12 +1,11 @@
 from typing import List, Dict, Optional, Tuple, Callable
-import pandas as pd
 from tkinter import messagebox
+import pandas as pd
 import logging
 
 from models.student import StudentPreference
 from models.company import Company, CompanySession
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -15,10 +14,8 @@ class SchedulerCore:
         self.student_preferences: Optional[List[StudentPreference]] = None
         self.companies: Optional[List[Company]] = None
         self.rooms: Optional[List[str]] = None
-        self.room_capacities: Dict[str, int] = {}  # Store room capacities
-        # Schedule: maps, company name, slot
+        self.room_capacities: Dict[str, int] = {}
         self.schedule: Dict[Tuple[str, int], CompanySession] = {}
-        # Time slots
         self.time_slots = [
             ("A", "8:45 – 9:30"),
             ("B", "9:50 – 10:35"),
@@ -64,18 +61,15 @@ class SchedulerCore:
             room_col = "Raum"
             capacity_col = "Kapazität" if "Kapazität" in df.columns else None
         else:
-            # Use the first column for room and second for capacity if available
             room_col = df.columns[0]
             capacity_col = df.columns[1] if len(df.columns) > 1 else None
         
-        # List of values to exclude (headers, empty values, etc.)
+        # Exclude excel headers
         excluded_values = ["raum", "room", "räume", "rooms", ""]
         
         for _, row in df.iterrows():
-            # Get the room name and clean it
             room_name = str(row[room_col]).strip()
             
-            # Skip if the room name is empty or matches an excluded value
             if not room_name or room_name.lower() in excluded_values:
                 logger.info(f"Skipping room entry: '{room_name}' (likely a header or empty value)")
                 continue
@@ -84,15 +78,15 @@ class SchedulerCore:
             self.rooms.append(room_name)
             
             # Store capacity if available
-            if capacity_col and pd.notna(row[capacity_col]):
+            if capacity_col and pd.notna(row[capacity_col]): # FIXME
                 try:
                     capacity = int(row[capacity_col])
                     self.room_capacities[room_name] = capacity
                 except (ValueError, TypeError):
                     logger.warning(f"Invalid capacity value for room {room_name}: {row[capacity_col]}")
-                    self.room_capacities[room_name] = 30  # Default capacity
+                    self.room_capacities[room_name] = 20  # Default capacity
             else:
-                self.room_capacities[room_name] = 30  # Default capacity if not specified
+                self.room_capacities[room_name] = 20  # Default capacity if not specified
         
         logger.info(f"Loaded {len(self.rooms)} rooms with capacities: {self.room_capacities}")
         return True
@@ -108,32 +102,28 @@ class SchedulerCore:
         try:
             self.schedule.clear()
             
-            # Initialize room usage tracking
-            self._room_usage = {room: {t: None for t in range(len(self.time_slots))} for room in self.rooms}
+            self._room_usage = {room: {t: None for t in range(len(self.time_slots))} for room in self.rooms} # FIXME
             
-            # Count student wishes to determine company popularity
             _, number_to_company = self._create_company_mappings()
             all_wish_counts, first_wish_counts = self._count_student_wishes(number_to_company)
             
-            # Filter companies by student interest 
             filtered_companies, excluded_companies = self._filter_companies_by_interest(all_wish_counts)
             
-            # Sort companies by popularity (first wish count)
             sorted_companies = sorted(
                 filtered_companies,
                 key=lambda x: first_wish_counts.get(x.name.strip(), 0),
                 reverse=True,
             )
             
-            # First identify Polizei and assign to Aula for all time slots
+            # Polizei Aula
             polizei_company = self._identify_polizei_company(sorted_companies)
             if polizei_company and polizei_company in sorted_companies:
                 sorted_companies.remove(polizei_company)
             
-            # Handle companies with duplicate names by setting flags
+            # Handle companies with duplicate names
             self._mark_duplicate_companies(sorted_companies)
             
-            # Always reserve Aula for Polizei in all time slots - ONLY if Aula exists
+            # Always reserve Aula for Polizei in all time slots, only if Aula exists
             if "Aula" in self.rooms and polizei_company:
                 # Mark Aula as reserved for all slots
                 for slot_idx in range(len(self.time_slots)):
@@ -143,34 +133,28 @@ class SchedulerCore:
                 for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
                     session = CompanySession(
                         company=polizei_company,
-                        room="Aula",  # Always Aula
+                        room="Aula",
                         time_slot=slot_letter,
                         time_range=time_range,
                     )
                     self.schedule[(polizei_company.unique_id, slot_idx)] = session
             
-            # Assign rooms to the remaining companies
             self._assign_companies_to_rooms(sorted_companies, all_wish_counts)
             
-            # Handle excluded companies
             self._handle_excluded_companies(excluded_companies)
             
-            # Now assign students to the sessions
             company_sessions = self._prepare_company_sessions()
             number_to_company = self._create_number_to_company_map()
             self._assign_students_to_sessions(company_sessions, number_to_company)
             
-            # Calculate fulfillment scores
             self._calculate_student_fulfillment_scores(number_to_company)
             
-            # Filter out empty sessions
             self.schedule = {k: v for k, v in self.schedule.items() 
                              if len(v.students) > 0 or k[1] == -1}  # Keep excluded companies
             
-            # Validate the schedule
             is_valid = self.debug_room_assignments()
             if not is_valid:
-                logger.warning("WARNING: Schedule validation found issues! See debug output above.")
+                logger.warning("Schedule validation found issues.")
                              
             return True
         except Exception as e:
@@ -186,7 +170,7 @@ class SchedulerCore:
     def _create_company_mappings(self):
         company_to_number = {}
         number_to_company = {}
-        for idx, company in enumerate(self.companies, 1):
+        for idx, company in enumerate(self.companies, 1): # FIXME
             normalized_name = company.name.strip()
             company_to_number[normalized_name] = str(idx)
             number_to_company[str(idx)] = normalized_name
@@ -197,7 +181,7 @@ class SchedulerCore:
         all_wish_counts = {}
         first_wish_counts = {}
         
-        for student in self.student_preferences:
+        for student in self.student_preferences: # FIXME
             if not student.wishes:
                 continue
                 
@@ -222,27 +206,24 @@ class SchedulerCore:
         return all_wish_counts, first_wish_counts
         
     def _filter_companies_by_interest(self, all_wish_counts):
-        """Filter companies based on student interest (previously min_participants)"""
         excluded_companies = []
         filtered_companies = []
-        for company in self.companies:
+        for company in self.companies: # FIXME
             normalized_name = company.name.strip()
             wish_count = all_wish_counts.get(normalized_name, 0)
-            if wish_count > 0:  # Now we only filter out companies with no interest
+            if wish_count > 0:
                 filtered_companies.append(company)
             else:
                 excluded_companies.append(company)
         return filtered_companies, excluded_companies
         
     def _identify_polizei_company(self, companies):
-        """Find the Polizei company in the list of companies"""
         for company in companies:
             if "polizei" in company.name.strip().lower():
                 return company
         return None
         
     def _mark_duplicate_companies(self, companies):
-        """Mark companies with duplicate names to always show their fields"""
         company_name_count = {}
         for company in companies:
             company_name = company.name.strip()
@@ -253,31 +234,21 @@ class SchedulerCore:
             if company_name_count.get(company_name, 0) > 1 and hasattr(company, 'field') and company.field:
                 company.always_show_field = True
                 
-    def _assign_companies_to_rooms(self, companies, wish_counts):
-        """Assign companies to rooms, considering room capacities"""
+    def _assign_companies_to_rooms(self, companies, wish_counts): # FIXME: too complex
         logger.info("Assigning companies to rooms")
         
-        # Sort rooms by capacity (larger rooms first)
-        sorted_rooms = sorted(self.rooms, key=lambda r: self.room_capacities.get(r, 0), reverse=True)
-        logger.debug(f"Rooms sorted by capacity: {sorted_rooms}")
+        # Sort rooms by capacity
+        sorted_rooms = sorted(self.rooms, key=lambda r: self.room_capacities.get(r, 0), reverse=True) # FIXME
         
-        # Debug: List all room names to identify problematic entries
-        logger.info(f"Available rooms: {sorted_rooms}")
-        # Check for 'Raum' entries in the room list and warn about them
         raum_entries = [r for r in sorted_rooms if r.lower() == "raum"]
         if raum_entries:
             logger.warning(f"Found {len(raum_entries)} 'Raum' entries in the room list. These may cause problems: {raum_entries}")
         
-        # Filter out any "Raum" entries that might have slipped through
         filtered_rooms = [r for r in sorted_rooms if r.lower() != "raum"]
         if len(filtered_rooms) != len(sorted_rooms):
             logger.info(f"Filtered out {len(sorted_rooms) - len(filtered_rooms)} 'Raum' entries from room list")
             sorted_rooms = filtered_rooms
         
-        # Log which companies we're assigning
-        logger.info(f"Companies to assign: {[company.name for company in companies]}")
-        
-        # Track how many sessions have been assigned to each company
         company_session_count = {company.unique_id: 0 for company in companies}
         
         # Check for Finanzamt company
@@ -899,19 +870,23 @@ class SchedulerCore:
     def _calculate_student_fulfillment_scores(self, number_to_company):
         """
         Calculate fulfillment scores for each student based on how well their wishes were met
-        Uses the weighting from the example Excel sheet: 
+        
+        Weighting:
         - Wish 1 = 6 points
         - Wish 2 = 5 points 
         - Wish 3 = 4 points
         - Wish 4 = 3 points
         - Wish 5 = 2 points
         - Wish 6 = 1 point
+        
+        Maximum possible score per student is 21 points (if all wishes are fulfilled).
+        Only students with at least one wish are counted in the denominator.
         """
         logger.info("Calculating student fulfillment scores")
         
         # Create wish weighting
         wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
-        max_score_per_student = 20  # Maximum possible score per student per session
+        max_score_per_student = 21  # Maximum possible score per student (sum of all weights)
         
         # Create a mapping from company unique ID to company name
         company_id_to_name = {}
@@ -939,16 +914,30 @@ class SchedulerCore:
                 # Map slot to company for this student
                 student_assignments[student_id][slot_idx] = company_id
         
+        # Count students with at least one wish
+        students_with_wishes = 0
+        
         # Now evaluate if students got their wishes
         total_score = 0
-        total_possible_score = 0
         student_scores = {}
         
         for student in self.student_preferences:
             student_id = student.student_id
+            
+            # Skip students with no wishes
+            if not student.wishes or all(not wish for wish in student.wishes):
+                student_scores[student_id] = 0
+                continue
+                
+            # Count this student as having wishes
+            students_with_wishes += 1
+            
             if student_id not in student_assignments:
                 student_scores[student_id] = 0
                 continue
+            
+            # Track which wishes were fulfilled for this student
+            fulfilled_wishes = set()
             
             # Calculate score for this student
             student_score = 0
@@ -972,9 +961,14 @@ class SchedulerCore:
                     if wish_company.lower() == company_name.lower():
                         wish_fulfilled = True
                         wish_number = wish_idx
+                        
+                        # Only count each wish once, even if assigned to multiple slots
+                        if wish_number not in fulfilled_wishes:
+                            fulfilled_wishes.add(wish_number)
+                            student_score += wish_weights.get(wish_number, 0)
+                            logger.debug(f"Student {student_id} got wish {wish_number} for {company_name}")
+                        
                         student_wish_fulfillment[student_id][slot_idx] = wish_number
-                        student_score += wish_weights.get(wish_number, 0)
-                        logger.debug(f"Student {student_id} got wish {wish_number} for {company_name} in slot {slot_idx}")
                         break
                 
                 if not wish_fulfilled:
@@ -984,14 +978,13 @@ class SchedulerCore:
             # Store the score for this student
             student_scores[student_id] = student_score
             total_score += student_score
-            
-            # Calculate max possible score for this student (20 points per session)
-            max_student_score = len(student_assignments[student_id]) * max_score_per_student
-            total_possible_score += max_student_score
-            
+        
         # Calculate overall score percentage
+        # The denominator is (number of students with wishes × 21)
+        total_possible_score = students_with_wishes * max_score_per_student
         fulfillment_percentage = (total_score / total_possible_score * 100) if total_possible_score > 0 else 0
         logger.info(f"Overall fulfillment score: {fulfillment_percentage:.2f}% ({total_score}/{total_possible_score})")
+        logger.info(f"Students with wishes: {students_with_wishes}")
         
         # Store wish fulfillment in session data
         for (company_id, slot_idx), session in self.schedule.items():
@@ -1018,7 +1011,8 @@ class SchedulerCore:
         - Wish 6 = 1 point
         - No match = 0 points
         
-        Each student can earn a maximum of 20 points per session.
+        Each student can earn a maximum of 21 points (sum of all wish weights).
+        Only students with at least one wish are included in the calculation.
         """
         if not self.schedule:
             return 0.0
@@ -1027,34 +1021,69 @@ class SchedulerCore:
         
         # Create wish weighting
         wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
-        max_score_per_session = 20  # Maximum possible score per student per session
+        max_score_per_student = 21  # Maximum possible score per student
+        
+        # Count students with wishes
+        students_with_wishes = sum(1 for student in self.student_preferences 
+                                 if student.wishes and any(wish for wish in student.wishes))
         
         # Initialize counters
         total_score = 0
-        total_students = 0
-        total_sessions = 0
         wish_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, None: 0}
         
-        # Count students in sessions
+        # Track which wishes were fulfilled for each student
+        student_fulfilled_wishes = {}
+        
+        # First, identify which wishes each student has fulfilled
         for (company_id, slot_idx), session in self.schedule.items():
             if slot_idx == -1:  # Skip excluded companies
                 continue
                 
+            company_name = session.company.name.lower()
+            
             for student in session.students:
-                total_students += 1
-                total_sessions += 1
-                wish_number = student.get("wish_number")
+                student_id = student["id"]
                 
-                # Add to wish count
-                wish_counts[wish_number] = wish_counts.get(wish_number, 0) + 1
+                # Initialize tracking for this student if not done already
+                if student_id not in student_fulfilled_wishes:
+                    student_fulfilled_wishes[student_id] = set()
                 
-                # Add to total score
-                if wish_number is not None:
-                    score = wish_weights.get(wish_number, 0)
-                    total_score += score
+                # Get the student object
+                student_obj = None
+                for s in self.student_preferences:
+                    if s.student_id == student_id:
+                        student_obj = s
+                        break
+                
+                if not student_obj or not student_obj.wishes:
+                    continue
+                
+                # Check if this company was in student's wishes
+                for wish_idx, wish in enumerate(student_obj.wishes, 1):
+                    if not wish:
+                        continue
+                        
+                    try:
+                        # Try to convert to number
+                        wish_num = int(float(str(wish).strip()))
+                        wish_company = str(wish_num)
+                    except (ValueError, TypeError):
+                        wish_company = str(wish).strip()
+                    
+                    if wish_company.lower() == company_name.lower():
+                        # Record this wish as fulfilled for this student
+                        student_fulfilled_wishes[student_id].add(wish_idx)
+                        # Count this wish in our statistics
+                        wish_counts[wish_idx] = wish_counts.get(wish_idx, 0) + 1
+                        break
         
-        # Calculate maximum possible score
-        max_possible_score = total_sessions * max_score_per_session
+        # Calculate the total score based on fulfilled wishes
+        for student_id, fulfilled_wishes in student_fulfilled_wishes.items():
+            student_score = sum(wish_weights.get(wish, 0) for wish in fulfilled_wishes)
+            total_score += student_score
+        
+        # Calculate maximum possible score and percentage
+        max_possible_score = students_with_wishes * max_score_per_student
         
         # Calculate percentage
         fulfillment_percentage = 0.0
@@ -1063,8 +1092,8 @@ class SchedulerCore:
             
         # Log statistics
         logger.info(f"Fulfillment score statistics:")
-        logger.info(f"- Total students in sessions: {total_students}")
-        logger.info(f"- Total sessions: {total_sessions}")
+        logger.info(f"- Students with wishes: {students_with_wishes}")
+        logger.info(f"- Students with at least one fulfilled wish: {len(student_fulfilled_wishes)}")
         logger.info(f"- Total actual score: {total_score}")
         logger.info(f"- Maximum possible score: {max_possible_score}")
         logger.info(f"- Fulfillment percentage: {fulfillment_percentage:.2f}%")
@@ -1195,10 +1224,27 @@ class SchedulerCore:
         return valid 
 
     def calculate_fulfillment(self):
-        """Calculate the fulfillment of student wishes"""
+        """
+        Calculate the fulfillment of student wishes
+        
+        The score is calculated based on:
+        - Wish 1 = 6 points
+        - Wish 2 = 5 points
+        - Wish 3 = 4 points
+        - Wish 4 = 3 points
+        - Wish 5 = 2 points
+        - Wish 6 = 1 point
+        
+        Each student can earn a maximum of 21 points if all wishes are fulfilled.
+        Only students with at least one wish are included in the calculation.
+        """
         total_students = len(self.student_preferences)
         if total_students == 0:
             return {}
+        
+        # Count students with wishes
+        students_with_wishes = sum(1 for student in self.student_preferences 
+                                 if student.wishes and any(wish for wish in student.wishes))
         
         # Track wish fulfillment statistics
         wish_stats = {
@@ -1207,23 +1253,31 @@ class SchedulerCore:
             "wish3_fulfilled": 0,
             "wish4_fulfilled": 0,
             "wish5_fulfilled": 0,
+            "wish6_fulfilled": 0,
             "no_wish_fulfilled": 0,
             "students_with_at_least_one_wish": 0,
             "students_with_top_three_wishes": 0,
             "students_with_all_five_sessions": 0,
             "total_wish_fulfillment": 0,
-            "weighted_fulfillment": 0
+            "weighted_fulfillment": 0,
+            "students_with_wishes": students_with_wishes
         }
         
         # Track wish fulfillment per student
         fulfillment_by_student = {}
         
-        # Weight for wishes (higher weight for top wishes)
-        wish_weights = {1: 5, 2: 4, 3: 3, 4: 2, 5: 1}
+        # Weight for wishes
+        wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
+        max_student_score = 21  # Sum of all wish weights
         
         # For each student, check if their wishes were fulfilled
         for student in self.student_preferences:
             student_id = student.student_id
+            
+            # Skip students with no wishes
+            if not student.wishes or all(not wish for wish in student.wishes):
+                continue
+                
             fulfillment_by_student[student_id] = {
                 "name": student.name,
                 "wishes_fulfilled": [],
@@ -1232,7 +1286,8 @@ class SchedulerCore:
                 "weighted_score": 0
             }
             
-            wishes_fulfilled = []
+            # Track if each wish was fulfilled (to count each wish only once)
+            fulfilled_wishes = set()
             wishes_by_company = {}
             
             # Map each wish to a company ID
@@ -1246,6 +1301,9 @@ class SchedulerCore:
             
             # Check each assigned session for this student
             for (company_id, slot_idx), session in self.schedule.items():
+                if slot_idx == -1:  # Skip excluded companies
+                    continue
+                    
                 for student_data in session.students:
                     if student_data["id"] == student_id:
                         fulfillment_by_student[student_id]["total_sessions"] += 1
@@ -1253,56 +1311,59 @@ class SchedulerCore:
                         # Check if this assignment fulfills a wish
                         if company_id in wishes_by_company:
                             wish_number = wishes_by_company[company_id]
-                            wishes_fulfilled.append((company_id, wish_number))
                             
-                            # For debugging
-                            student_data["wish_number"] = wish_number
-                            
-                            # Update statistics for this wish
-                            wish_key = f"wish{wish_number}_fulfilled"
-                            if wish_key in wish_stats:
-                                wish_stats[wish_key] += 1
+                            # Only count each wish once
+                            if wish_number not in fulfilled_wishes:
+                                fulfilled_wishes.add(wish_number)
                                 
-                            # Calculate weighted score for this wish
-                            if wish_number in wish_weights:
-                                fulfillment_by_student[student_id]["weighted_score"] += wish_weights[wish_number]
+                                # Add to fulfilled wishes list
+                                fulfillment_by_student[student_id]["wishes_fulfilled"].append((company_id, wish_number))
+                                
+                                # Update statistics for this wish
+                                wish_key = f"wish{wish_number}_fulfilled"
+                                if wish_key in wish_stats:
+                                    wish_stats[wish_key] += 1
+                                
+                                # Calculate weighted score for this wish
+                                if wish_number in wish_weights:
+                                    fulfillment_by_student[student_id]["weighted_score"] += wish_weights[wish_number]
             
-            # Store wishes fulfilled for this student
-            fulfillment_by_student[student_id]["wishes_fulfilled"] = sorted(wishes_fulfilled, key=lambda x: x[1])
+            # Sort wishes fulfilled by wish number
+            fulfillment_by_student[student_id]["wishes_fulfilled"] = sorted(
+                fulfillment_by_student[student_id]["wishes_fulfilled"], 
+                key=lambda x: x[1]
+            )
             
-            # Calculate fulfillment score (percentage of wishes fulfilled)
-            fulfilled_count = len(wishes_fulfilled)
-            if fulfilled_count > 0:
+            # Calculate fulfillment score (percentage of max possible points)
+            weighted_score = fulfillment_by_student[student_id]["weighted_score"]
+            if weighted_score > 0:
                 wish_stats["students_with_at_least_one_wish"] += 1
+                wish_stats["total_wish_fulfillment"] += len(fulfilled_wishes)
                 
                 # Check if student has any of their top 3 wishes
-                if any(wish[1] <= 3 for wish in wishes_fulfilled):
+                if any(wish == 1 or wish == 2 or wish == 3 for wish in fulfilled_wishes):
                     wish_stats["students_with_top_three_wishes"] += 1
                 
-                # Calculate as percentage of 5 total possible wishes
-                fulfillment_by_student[student_id]["fulfillment_score"] = (fulfilled_count / 5) * 100
-                wish_stats["total_wish_fulfillment"] += fulfilled_count
+                # Calculate fulfillment as percentage of max possible
+                fulfillment_by_student[student_id]["fulfillment_score"] = (weighted_score / max_student_score) * 100
+                wish_stats["weighted_fulfillment"] += weighted_score
             else:
                 wish_stats["no_wish_fulfilled"] += 1
                 
-            # Calculate weighted score as percentage of maximum possible weighted score
-            max_weighted_score = sum(wish_weights.values())  # 15 for our weights
-            weighted_pct = (fulfillment_by_student[student_id]["weighted_score"] / max_weighted_score) * 100
-            fulfillment_by_student[student_id]["weighted_fulfillment"] = weighted_pct
-            wish_stats["weighted_fulfillment"] += weighted_pct
-            
             # Check if student has all 5 sessions
-            if fulfillment_by_student[student_id]["total_sessions"] == 5:
+            if fulfillment_by_student[student_id]["total_sessions"] >= 5:
                 wish_stats["students_with_all_five_sessions"] += 1
         
         # Calculate overall statistics
-        if total_students > 0:
-            total_possible_wishes = total_students * 5
-            wish_stats["fulfillment_percentage"] = (wish_stats["total_wish_fulfillment"] / total_possible_wishes) * 100
-            wish_stats["students_with_at_least_one_wish_pct"] = (wish_stats["students_with_at_least_one_wish"] / total_students) * 100
-            wish_stats["students_with_top_three_wishes_pct"] = (wish_stats["students_with_top_three_wishes"] / total_students) * 100
-            wish_stats["students_with_all_five_sessions_pct"] = (wish_stats["students_with_all_five_sessions"] / total_students) * 100
-            wish_stats["average_weighted_fulfillment"] = wish_stats["weighted_fulfillment"] / total_students
+        if students_with_wishes > 0:
+            # Calculate weighted fulfillment percentage
+            max_possible_weighted = students_with_wishes * max_student_score
+            wish_stats["fulfillment_percentage"] = (wish_stats["weighted_fulfillment"] / max_possible_weighted) * 100
+            
+            # Other percentage statistics
+            wish_stats["students_with_at_least_one_wish_pct"] = (wish_stats["students_with_at_least_one_wish"] / students_with_wishes) * 100
+            wish_stats["students_with_top_three_wishes_pct"] = (wish_stats["students_with_top_three_wishes"] / students_with_wishes) * 100
+            wish_stats["average_weighted_fulfillment"] = wish_stats["weighted_fulfillment"] / students_with_wishes
         
         # Return all statistics
         return {

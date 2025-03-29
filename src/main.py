@@ -4,15 +4,12 @@ import sys
 from tkinter import ttk
 import pandas as pd
 from dotenv import load_dotenv
-
-# Add the root directory to the python path to allow imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Load environment variables early
-load_dotenv()
-
 from services.scheduler import Scheduler
 from ui import ErrorDisplay, ImportsTab, ScheduleTab, ExportsTab
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+load_dotenv()
 
 class RoomManagementApp:
     def __init__(self, root):

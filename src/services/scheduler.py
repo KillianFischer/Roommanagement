@@ -1,6 +1,5 @@
-from typing import List, Dict, Optional, Tuple, Callable
+from typing import List, Optional, Callable
 import pandas as pd
-import os
 from tkinter import messagebox
 
 from services.scheduler_core import SchedulerCore
@@ -43,7 +42,6 @@ class Scheduler:
             "Frühester Zeitpunkt",
         ]
 
-        # Need to handle both field name options
         field_column = None
         if "Fachrichtung" in df.columns:
             field_column = "Fachrichtung"
@@ -62,30 +60,21 @@ class Scheduler:
             companies = []
             for _, row in df.iterrows():
                 name = str(row["Unternehmen"]).strip()
-                field = str(row[field_column]).strip() if field_column and pd.notna(row[field_column]) else ""
+                field = str(row[field_column]).strip() if field_column and pd.notna(row[field_column]) else "" # FIXME
                 
                 max_participants = int(row["Max. Teilnehmer"])
-                
-                # Get max sessions (previously min_participants)
+
                 if "Max. Veranstaltungen" in df.columns:
                     max_sessions = int(row["Max. Veranstaltungen"])
                 else:
-                    # Backward compatibility with old format
+                    # FIXME: Remove this
                     max_sessions = int(row["Min. Teilnehmer"])
                 
-                # Handle earliest slot letter representation (A, B, C, ...)
                 earliest_slot = 0  # Default to A (first slot)
-                if pd.notna(row["Frühester Zeitpunkt"]):
+                if pd.notna(row["Frühester Zeitpunkt"]): # FIXME
                     slot_letter = str(row["Frühester Zeitpunkt"]).strip().upper()
                     if slot_letter in ["A", "B", "C", "D", "E"]:
                         earliest_slot = ord(slot_letter) - ord("A")
-                
-                # Check for special companies that need fixed rooms
-                fixed_room = None
-                if "finanzamt" in name.lower():
-                    # The exact room will be determined when rooms are loaded
-                    # For now, we'll just mark that this company needs special handling
-                    fixed_room = "finanzamt"  # This is a placeholder that will be replaced
                 
                 companies.append(
                     Company(
@@ -94,7 +83,6 @@ class Scheduler:
                         capacity=max_participants,
                         max_sessions=max_sessions,
                         earliest_slot=earliest_slot,
-                        fixed_room=fixed_room,
                     )
                 )
             
@@ -119,7 +107,7 @@ class Scheduler:
             return False
         
         try:
-            # Use the core scheduler to generate the schedule
+            # Invoke the core scheduler.py
             success = self.core.generate_schedule()
             
             if not success:
@@ -143,33 +131,27 @@ class Scheduler:
         if not self.core.schedule:
             return 0
         
-        # Get the fulfillment statistics from the core scheduler
         fulfillment_data = self.core.calculate_fulfillment()
         if not fulfillment_data or "overall_stats" not in fulfillment_data:
             return 0
             
-        # Return the average weighted fulfillment percentage
-        return fulfillment_data["overall_stats"].get("average_weighted_fulfillment", 0)
+        return fulfillment_data["overall_stats"].get("fulfillment_percentage", 0)
         
     def get_student_fulfillment_scores(self) -> pd.DataFrame:
-        """Get detailed fulfillment scores for each student"""
         if not self.core.schedule:
             return pd.DataFrame()
             
-        # Get fulfillment data from the core
         fulfillment_data = self.core.calculate_fulfillment()
         if not fulfillment_data or "by_student" not in fulfillment_data:
             return pd.DataFrame()
             
-        # Extract student fulfillment details
         student_data = []
         
         for student_id, data in fulfillment_data["by_student"].items():
-            # Calculate weighted fulfillment percentage
             weighted_pct = data.get("weighted_fulfillment", 0)
             
             # Count wishes by rank
-            wish_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, None: 0}
+            wish_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, None: 0}
             for _, wish_number in data.get("wishes_fulfilled", []):
                 if wish_number in wish_counts:
                     wish_counts[wish_number] += 1
@@ -179,13 +161,14 @@ class Scheduler:
                 "Student ID": student_id,
                 "Name": data.get("name", ""),
                 "Total Score": data.get("weighted_score", 0),
-                "Max Score": 15,  # Maximum possible weight sum (5+4+3+2+1)
+                "Max Score": 21,  # Maximum possible weight sum (6+5+4+3+2+1)
                 "Fulfillment %": round(weighted_pct, 2),
                 "1st Wishes": wish_counts.get(1, 0),
                 "2nd Wishes": wish_counts.get(2, 0),
                 "3rd Wishes": wish_counts.get(3, 0),
                 "4th Wishes": wish_counts.get(4, 0),
                 "5th Wishes": wish_counts.get(5, 0),
+                "6th Wishes": wish_counts.get(6, 0),
                 "No Match": data.get("total_sessions", 0) - len(data.get("wishes_fulfilled", [])),
             }
             
@@ -215,7 +198,6 @@ class Scheduler:
         return df
         
     def get_student_schedule(self, student_id):
-        """Get the schedule for a specific student"""
         if not self.core.schedule:
             return []
             
@@ -259,13 +241,11 @@ class Scheduler:
         if not self.core.schedule:
             self.on_error("Bitte zuerst den Zeitplan generieren.")
             return False
-            
         try:
-            # Use the PDF exporter to export student schedules
             self.pdf_exporter.export_student_schedules(
                 filepath=filepath,
                 schedule=self.core.schedule,
-                student_preferences=self.core.student_preferences,
+                student_preferences=self.core.student_preferences, # FIXME
                 time_slots=self.time_slots
             )
             return True
@@ -279,14 +259,12 @@ class Scheduler:
         
         if not self.core.schedule:
             self.on_error("Bitte zuerst den Zeitplan generieren.")
-            return False
-            
+            return False   
         try:
-            # Use the Excel exporter to export student schedules
             self.excel_exporter.export_student_schedules(
                 filepath=filepath,
                 schedule=self.core.schedule,
-                student_preferences=self.core.student_preferences,
+                student_preferences=self.core.student_preferences, # FIXME
                 time_slots=self.time_slots
             )
             return True
@@ -321,9 +299,7 @@ class Scheduler:
         if not self.core.schedule:
             self.on_error("Bitte zuerst den Zeitplan generieren.")
             return False
-            
         try:
-            # Use the Excel exporter to export company overview
             self.excel_exporter.export_company_overview(
                 filepath=filepath,
                 schedule=self.core.schedule,
@@ -376,39 +352,31 @@ class Scheduler:
                 continue
                 
             slot_letter, time_range = self.time_slots[slot_idx]
-            company_name = session.get_company_display_name()  # Use display name with field
+            company_name = session.get_company_display_name()
             room = session.room
             
-            # Add this session to each assigned student's schedule
+            # Add this session to each assigned students schedule
             for student in session.students:
                 student_name = student["name"]
                 if student_name not in student_schedules:
                     student_schedules[student_name] = []
                 
-                # Include the wish number if available
                 wish_number = student.get("wish_number", "-")
                     
                 student_schedules[student_name].append((slot_letter, time_range, company_name, room, wish_number))
                 
-        # Sort each student's schedule by time slot
         for student_name in student_schedules:
             student_schedules[student_name].sort()
             
         return student_schedules
         
     def get_company_overview(self):
-        """
-        Get company schedule overview in a format suitable for UI display
-        
-        Returns:
-            dict: Slot letter -> list of (company, room, num_students)
-        """
         if not self.is_data_loaded() or not self.get_schedule():
             return {}
             
         slot_to_companies = {}
         
-        # Fill in the slots based on company sessions
+        # Fill in the slots
         for (company_id, slot_idx), session in self.get_schedule().items():
             if slot_idx == -1:  # Skip excluded companies
                 continue
@@ -418,7 +386,6 @@ class Scheduler:
             if slot_letter not in slot_to_companies:
                 slot_to_companies[slot_letter] = []
             
-            # Use the display name which includes the field if needed
             display_name = session.get_company_display_name() 
                 
             slot_to_companies[slot_letter].append((
@@ -427,7 +394,6 @@ class Scheduler:
                 len(session.students)
             ))
                 
-        # Sort each slot's companies by name
         for slot_letter in slot_to_companies:
             slot_to_companies[slot_letter].sort(key=lambda x: x[0].lower())
             
@@ -466,10 +432,10 @@ class Company:
         self.max_sessions = max_sessions
         self.earliest_slot = earliest_slot
         self.blocked_slots = blocked_slots or []
-        self.fixed_room = fixed_room  # Allow specifying a fixed room for certain companies
-        # Create a unique identifier that combines name and field
+        self.fixed_room = fixed_room
+        # Unique id that combines name and field
         self.unique_id = f"{name}_{field}" if field else name
-        self.always_show_field = False  # Flag to always show field in display name
+        self.always_show_field = False
     
     def __str__(self):
         if self.field:
@@ -487,7 +453,6 @@ class Session:
         return f"Session({self.company}, {self.room}, {len(self.students)} students)"
         
     def get_company_display_name(self):
-        """Return a display name for the company that includes the field if available"""
         if self.company.field:
             return f"{self.company.name} ({self.company.field})"
         return self.company.name
