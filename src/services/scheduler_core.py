@@ -360,7 +360,6 @@ class SchedulerCore:
         return company_sessions
         
     def _assign_students_to_sessions(self, company_sessions, number_to_company):
-        """Assign students to company sessions based on their wishes with balanced distribution"""
         company_id_map = {}
         for company in self.companies:
             name = company.name.strip()
@@ -417,7 +416,6 @@ class SchedulerCore:
         )
         
         first_slot_idx = 0
-        logger.info(f"First making sure every student has an assignment for slot A (index {first_slot_idx})")
         
         first_slot_sessions = []
         for company_id, slots in company_sessions.items():
@@ -680,21 +678,6 @@ class SchedulerCore:
                             break
 
     def _calculate_student_fulfillment_scores(self, number_to_company):
-        """
-        Calculate fulfillment scores for each student based on how well their wishes were met
-        
-        Weighting:
-        - Wish 1 = 6 points
-        - Wish 2 = 5 points 
-        - Wish 3 = 4 points
-        - Wish 4 = 3 points
-        - Wish 5 = 2 points
-        - Wish 6 = 1 point
-        
-        Maximum possible score per student is 21 points (if all wishes are fulfilled).
-        Only students with at least one wish are counted in the denominator.
-        """
-        logger.info("Calculating student fulfillment scores")
         
         wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
         max_score_per_student = 21  # Maximum possible score per student (sum of all weights)
@@ -792,21 +775,6 @@ class SchedulerCore:
         return fulfillment_percentage
 
     def calculate_overall_fulfillment_score(self) -> float:
-        """
-        Calculate the overall fulfillment score as a percentage of maximum possible score.
-        
-        The score is calculated based on:
-        - Wish 1 = 6 points
-        - Wish 2 = 5 points
-        - Wish 3 = 4 points
-        - Wish 4 = 3 points
-        - Wish 5 = 2 points
-        - Wish 6 = 1 point
-        - No match = 0 points
-        
-        Each student can earn a maximum of 21 points (sum of all wish weights).
-        Only students with at least one wish are included in the calculation.
-        """
         if not self.schedule:
             return 0.0
             
@@ -819,7 +787,6 @@ class SchedulerCore:
         for company in self.companies:
             name = company.name.strip()
             company_name_to_id[name] = company.unique_id
-            # Also add numeric ID if the name is a number
             try:
                 num_id = int(float(name))
                 company_name_to_id[str(num_id)] = company.unique_id
@@ -880,6 +847,7 @@ class SchedulerCore:
         if max_possible_score > 0:
             fulfillment_percentage = (total_score / max_possible_score) * 100
             
+        # CLI for debugging during development    
         logger.info(f"Fulfillment score statistics:")
         logger.info(f"- Students with wishes: {students_with_wishes}")
         logger.info(f"- Students with at least one fulfilled wish: {len(student_fulfilled_wishes)}")
@@ -894,7 +862,6 @@ class SchedulerCore:
         return self.schedule
         
     def _create_number_to_company_map(self):
-        """Create a mapping from numeric identifiers to company unique IDs"""
         number_to_company = {}
         for idx, company in enumerate(self.companies, 1):
             number_to_company[str(idx)] = company.unique_id
@@ -902,11 +869,10 @@ class SchedulerCore:
         return number_to_company 
 
     def _handle_excluded_companies(self, excluded_companies):
-        """Handle companies that don't have any student interest"""
         for company in excluded_companies:
             session = CompanySession(
                 company=company,
-                room="Kein Schülerinteresse",  # Updated message
+                room="Kein Schülerinteresse",
                 time_slot="-",
                 time_range="-",
             )
@@ -987,6 +953,7 @@ class SchedulerCore:
         total_student_slots = sum(len(slots) for slots in student_schedule.values())
         total_company_slots = sum(len(slots) for slots in company_schedule.values())
         
+        # CLI for debugging during development
         logger.info(f"Schedule statistics:")
         logger.info(f"- Total rooms used: {len(room_schedule)}")
         logger.info(f"- Total companies scheduled: {len(company_schedule)}")

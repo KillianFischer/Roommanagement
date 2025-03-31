@@ -4,23 +4,20 @@ import pandas as pd
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 
 from models.student import StudentPreference
 
 
 class ExcelExporter:
     def __init__(self):
-        # Define standard colors
+
         self.header_fill = PatternFill(start_color="2F5596", end_color="2F5596", fill_type="solid")
         self.header_font = Font(bold=True, color="FFFFFF")
         self.subheader_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
         self.subheader_font = Font(bold=True)
         self.alt_row_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
         
-        # Define borders
         self.thin_border = Border(
             left=Side(style='thin'),
             right=Side(style='thin'),
@@ -30,15 +27,6 @@ class ExcelExporter:
 
     def export_student_schedules(self, filepath: str, schedule: Dict[Tuple[str, int], any], 
                                 student_preferences: List[StudentPreference], time_slots: List[Tuple[str, str]]):
-        """
-        Export student schedules to an Excel file
-        
-        Args:
-            filepath: The path to save the Excel file to
-            schedule: The schedule data (company name, slot) -> session
-            student_preferences: List of student preferences
-            time_slots: List of time slots as (letter, time range)
-        """
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
         wb = Workbook()
@@ -112,7 +100,6 @@ class ExcelExporter:
             
             current_row += 1
         
-        # Adjust column widths
         ws.column_dimensions['A'].width = 10  # Slot
         ws.column_dimensions['B'].width = 20  # Zeit
         ws.column_dimensions['C'].width = 40  # Unternehmen
@@ -122,12 +109,6 @@ class ExcelExporter:
         return True
             
     def _prepare_student_schedules(self, schedule, student_preferences):
-        """
-        Create a dictionary mapping student names to their schedules
-        
-        Returns:
-            dict: student_name -> {slot_idx: (company_name, room)}
-        """
         student_schedules = {}
         
         for student in student_preferences:
@@ -148,14 +129,6 @@ class ExcelExporter:
         
     def export_company_overview(self, filepath: str, schedule: Dict[Tuple[str, int], any],
                                time_slots: List[Tuple[str, str]]):
-        """
-        Export company overview to an Excel file
-        
-        Args:
-            filepath: The path to save the Excel file to
-            schedule: The schedule data (company name, slot) -> session
-            time_slots: List of time slots as (letter, time range)
-        """
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
         wb = Workbook()
@@ -235,7 +208,6 @@ class ExcelExporter:
                 ws.cell(row=current_row, column=1, value=f"• {company_name}: Kein Schülerinteresse")
                 current_row += 1
         
-        # Adjust column widths
         ws.column_dimensions['A'].width = 40  # Unternehmen
         ws.column_dimensions['B'].width = 20  # Raum
         ws.column_dimensions['C'].width = 15  # Anzahl Schüler
@@ -245,15 +217,6 @@ class ExcelExporter:
 
     def export_attendance_lists(self, filepath: str, schedule: Dict[Tuple[str, int], any], 
                               time_slots: List[Tuple[str, str]], preview_mode=False):
-        """
-        Export attendance lists to an Excel file
-        
-        Args:
-            filepath: The path to save the Excel file to
-            schedule: The schedule data (company name, slot) -> session
-            time_slots: List of time slots as (letter, time range)
-            preview_mode: If True, only export a subset of companies for preview
-        """
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
         wb = Workbook()
@@ -331,7 +294,6 @@ class ExcelExporter:
             
             current_row += 2
         
-        # Adjust column widths
         ws.column_dimensions['A'].width = 5   # Nr.
         ws.column_dimensions['B'].width = 30  # Name
         ws.column_dimensions['C'].width = 15  # Klasse
@@ -341,14 +303,6 @@ class ExcelExporter:
         return True
         
     def export_room_list(self, filepath: str, rooms: List[str], room_capacities: Dict[str, int]):
-        """
-        Export room list with capacities to an Excel file
-        
-        Args:
-            filepath: The path to save the Excel file to
-            rooms: List of room names
-            room_capacities: Dictionary mapping room names to their capacities
-        """
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
         wb = Workbook()
@@ -388,7 +342,6 @@ class ExcelExporter:
             
             current_row += 1
         
-        # Adjust column widths
         ws.column_dimensions['A'].width = 30  # Raum
         ws.column_dimensions['B'].width = 15  # Kapazität
         
@@ -426,8 +379,5 @@ class ExcelExporter:
             return True
             
         except Exception as e:
-            #import traceback
-            #traceback.print_exc()
-            # Use messagebox for errors in exporter
             messagebox.showerror("Excel Export Fehler", f"Fehler beim Exportieren des Zeitplans nach Excel: {str(e)}")
             return False 

@@ -27,24 +27,19 @@ class Company:
     def from_dataframe(cls, df: pd.DataFrame) -> List["Company"]:
         companies = []
         for _, row in df.iterrows():
-            # strip extra spaces
             comp_name = str(row["Unternehmen"]).strip()
             
-            # Handle field/specialization
             field = ""
             if "Fachrichtung" in df.columns and pd.notna(row["Fachrichtung"]):
                 field = str(row["Fachrichtung"]).strip()
                 
             max_teilnehmer = int(row["Max. Teilnehmer"])
             
-            # Check for max sessions column
             if "Max. Veranstaltungen" in df.columns:
                 max_sessions = int(row["Max. Veranstaltungen"])
-            # Legacy support for Min. Teilnehmer
-            elif "Min. Teilnehmer" in df.columns:
-                max_sessions = int(row["Min. Teilnehmer"])
             else:
                 # Default to 5 (one for each time slot) if no column is found
+                # This case should ideally not be reached if validation is done beforehand
                 max_sessions = 5
                 
             if pd.isna(row["Frühester Zeitpunkt"]):
@@ -60,7 +55,7 @@ class Company:
                     max_sessions=max_sessions,
                     earliest_slot=earliest,
                     blocked_slots=list(range(earliest)),
-                    field=field,  # Add the field to the constructor
+                    field=field,
                 )
             )
         return companies

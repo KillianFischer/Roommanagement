@@ -84,14 +84,13 @@ class ScheduleTab:
             ("E", "12:25 – 13:10"),
         ]
         
-        # Remove previously added fulfillment score label if it exists
         if hasattr(self, 'overall_score_label'):
             self.overall_score_label.destroy()
             delattr(self, 'overall_score_label')
 
         columns = ["Company"] + [slot for slot, _ in time_slots]
         self.schedule_tree["columns"] = columns
-        self.schedule_tree.column("#0", width=0, stretch=tk.NO) # Hide the default first column
+        self.schedule_tree.column("#0", width=0, stretch=tk.NO)
         self.schedule_tree.column("Company", anchor=tk.W, width=250)
         self.schedule_tree.heading("Company", text="Unternehmen", anchor=tk.W)
 
@@ -250,7 +249,6 @@ class ScheduleTab:
                 self.clear_error()
                 messagebox.showinfo("Export Erfolgreich", f"Zeitplan exportiert nach {filepath}")
             else:
-                # Scheduler service shows detailed error via messagebox
                 self.show_error("Fehler beim Exportieren des Zeitplans nach Excel. Details siehe Popup.")
             
         except Exception as e:

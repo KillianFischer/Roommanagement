@@ -3,7 +3,6 @@ import pandas as pd
 from tkinter import messagebox
 
 from services.scheduler_core import SchedulerCore
-from services.pdf_exporter import PDFExporter
 from services.excel_exporter import ExcelExporter
 from services.attendance_exporter import AttendanceExporter
 from models.student import StudentPreference
@@ -12,7 +11,6 @@ from models.student import StudentPreference
 class Scheduler:
     def __init__(self):
         self.core = SchedulerCore()
-        self.pdf_exporter = PDFExporter()
         self.excel_exporter = ExcelExporter()
         self.attendance_exporter = AttendanceExporter()
         self.time_slots = self.core.time_slots
@@ -45,7 +43,7 @@ class Scheduler:
 
                 max_sessions = int(row["Max. Veranstaltungen"])
                 
-                earliest_slot = 0  # Default to A (first slot)
+                earliest_slot = 0  # Default A slot
                 if pd.notna(row["Frühester Zeitpunkt"]):
                     slot_letter = str(row["Frühester Zeitpunkt"]).strip().upper()
                     if slot_letter in ["A", "B", "C", "D", "E"]:
@@ -80,11 +78,9 @@ class Scheduler:
             return False
         
         try:
-            # Invoke the core scheduler.py
             success = self.core.generate_schedule()
             
             if not success:
-                # Assuming core now uses messagebox directly if it fails internally
                 return False 
                 
             return True

@@ -14,20 +14,9 @@ class AttendanceExporter:
         
     def export_attendance_lists(self, filepath: str, schedule: Dict[Tuple[str, int], any], 
                               time_slots: List[Tuple[str, str]], preview_mode=False):
-        """
-        Export attendance lists to a PDF file
-        
-        Args:
-            filepath: The path to save the PDF to
-            schedule: The schedule data (company name, slot) -> session
-            time_slots: List of time slots as (letter, time range)
-            preview_mode: If True, only export a subset of companies for preview
-        """
         try:
-            # Create the directory if it doesn't exist
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
             
-            # Create the PDF document
             doc = SimpleDocTemplate(
                 filepath,
                 pagesize=A4,
@@ -61,7 +50,6 @@ class AttendanceExporter:
                 if slot_idx == -1:
                     continue
                     
-                # Get the slot letter and time range
                 slot_letter, time_range = time_slots[slot_idx]
                 
                 story.append(
@@ -81,12 +69,9 @@ class AttendanceExporter:
 
                 data = [["Nr.", "Name", "Klasse", "Anwesend"]]
                 
-                # Check if the session has any students
                 if len(session.students) == 0:
-                    # If no students, show the "no interest" message
                     data.append(["", "Kein Schülerinteresse", "", ""])
                 else:
-                    # Add student rows
                     for i, student in enumerate(
                         sorted(session.students, key=lambda x: x["name"]), 1
                     ):
@@ -96,7 +81,6 @@ class AttendanceExporter:
                     # Check if there are no students
                     current_students = len(session.students)
                     if current_students == 0:
-                        # If no students, add a message row
                         data.append(["", "Keine Teilnehmer", "", ""])
 
                 t = Table(

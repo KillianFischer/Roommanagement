@@ -261,17 +261,15 @@ class ImportsTab:
         file_path = self.get_import_file("ROOM_LIST", "Import Room List", auto_mode)
         if file_path:
             try:
-                # Read Excel, handle potential missing header
                 df = pd.read_excel(file_path, header=None)
                 if len(df.columns) >= 1 and isinstance(df.iloc[0, 0], str) and df.iloc[0, 0].lower() in ["raum", "room"]:
-                    # File likely has headers, reread
                     df = pd.read_excel(file_path)
                     # Standardize column names
                     if "Raum" not in df.columns and "Room" in df.columns: df = df.rename(columns={"Room": "Raum"})
                     if "Kapazität" not in df.columns and "Kapazitaet" in df.columns: df = df.rename(columns={"Kapazitaet": "Kapazität"})
                     if "Kapazität" not in df.columns and "Capacity" in df.columns: df = df.rename(columns={"Capacity": "Kapazität"})
                 else:
-                    # No headers, assign default names
+                    # No headers
                     column_names = ["Raum"]
                     if len(df.columns) >= 2:
                         column_names.append("Kapazität")
@@ -289,7 +287,7 @@ class ImportsTab:
                     self.show_error("rooms", "Fehler beim Import: Ungültiges Dateiformat. Details siehe Popup.")
             except Exception as e:
                 import traceback
-                traceback.print_exc() # Keep traceback for complex file reading errors
+                traceback.print_exc()
                 self.show_error("rooms", f"Fehler beim Lesen der Datei: {str(e)}")
                 self.rooms_status.config(text=f"Error: {str(e)}", foreground="red")
                 
@@ -297,12 +295,10 @@ class ImportsTab:
         """Automatically import files in dev mode if they exist in the import folder"""
         self.clear_error()
         try:
-            # Removed print statements for auto-import start/status
             
             # Import rooms
             rooms_file = os.path.join(self.app.import_folder, os.getenv("ROOM_LIST"))
             if os.path.exists(rooms_file):
-                # --- Room loading logic copied from import_rooms (minor simplification) ---
                 temp_df = pd.read_excel(rooms_file, header=None)
                 if len(temp_df.columns) >= 1 and isinstance(temp_df.iloc[0, 0], str) and temp_df.iloc[0, 0].lower() in ["raum", "room"]:
                     df = pd.read_excel(rooms_file)
@@ -314,7 +310,6 @@ class ImportsTab:
                     column_names = ["Raum"]
                     if len(df.columns) >= 2: column_names.append("Kapazität")
                     df.columns = column_names
-                # --- End Room loading logic ---
 
                 if self.scheduler.load_rooms(df):
                     self.rooms_status.config(text=f"Imported: {os.path.basename(rooms_file)}")
@@ -323,7 +318,7 @@ class ImportsTab:
                     self.app.setup_preview_tree(self.rooms_preview, preview_columns)
                     self.app.update_preview(self.rooms_preview, df, preview_columns)
                 else:
-                    self.show_error("rooms", "Fehler beim Auto-Import der Raumliste.")
+                    self.show_error("rooms", "Fehler beim Auto Import der Raumliste.")
             
             # Import companies
             companies_file = os.path.join(self.app.import_folder, os.getenv("COMPANY_LIST"))
@@ -340,7 +335,7 @@ class ImportsTab:
                     self.app.setup_preview_tree(self.companies_preview, required)
                     self.app.update_preview(self.companies_preview, df, required)
                 else:
-                    self.show_error("companies", "Fehler beim Auto-Import der Unternehmensliste.")
+                    self.show_error("companies", "Fehler beim Auto Import der Unternehmensliste.")
                 
             # Import preferences
             preferences_file = os.path.join(self.app.import_folder, os.getenv("STUDENT_PREFERENCES"))
@@ -353,8 +348,7 @@ class ImportsTab:
                     self.app.setup_preview_tree(self.preferences_preview, cols)
                     self.app.update_preview(self.preferences_preview, df, cols)
                 else:
-                    self.show_error("preferences", "Fehler beim Auto-Import der Schülerwünsche.")
+                    self.show_error("preferences", "Fehler beim Auto Import der Schülerwünsche.")
                 
         except Exception as e:
-            # Removed auto-import error print statement
-            self.show_error("preferences", f"Allgemeiner Fehler beim automatischen Import: {str(e)}") 
+            self.show_error("preferences", f"Fehler beim automatischen Import: {str(e)}") 
