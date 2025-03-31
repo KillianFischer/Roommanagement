@@ -52,40 +52,31 @@ class PDFExporter:
             student_preferences: List of student preferences
             time_slots: List of time slots as (letter, time range)
         """
-        # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        # Create the PDF document
         doc = SimpleDocTemplate(filepath, pagesize=A4, 
                                rightMargin=30, leftMargin=30,
                                topMargin=30, bottomMargin=30)
         
-        # Prepare the content
         content = []
         
-        # Add the title
         content.append(Paragraph("Schüler Zeitpläne", self.styles["CustomTitle"]))
         content.append(Paragraph(f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}", 
                                 self.styles["CustomNormal"]))
         content.append(Spacer(1, 12))
         
-        # Prepare student schedules
         student_schedules = self._prepare_student_schedules(schedule, student_preferences)
         
-        # Add a section for each student with their schedule
         sorted_students = sorted(student_schedules.keys(), key=lambda x: x.lower())
         
         for student_name in sorted_students:
             content.append(Paragraph(f"Schüler: {student_name}", self.styles["CustomSubtitle"]))
             
-            # Create a table with the student's schedule
             data = []
             
-            # Table header
             headers = ["Slot", "Zeit", "Unternehmen", "Raum"]
             data.append(headers)
             
-            # Add rows for each time slot
             student_data = student_schedules[student_name]
             
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
@@ -101,10 +92,8 @@ class PDFExporter:
                 
                 data.append(row)
                 
-            # Create the table
             table = Table(data, colWidths=[30, 100, 200, 100])
             
-            # Style the table
             table_style = TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
@@ -124,7 +113,6 @@ class PDFExporter:
             content.append(table)
             content.append(Spacer(1, 12))
             
-        # Build the PDF
         doc.build(content)
             
     def _prepare_student_schedules(self, schedule, student_preferences):
@@ -136,16 +124,13 @@ class PDFExporter:
         """
         student_schedules = {}
         
-        # Initialize schedules for all students
         for student in student_preferences:
             student_schedules[student.name] = {}
             
-        # Fill in the schedules based on company sessions
         for (company_name, slot_idx), session in schedule.items():
             if slot_idx == -1:
                 continue  # Skip excluded companies
                 
-            # Add each student in this session to their schedule
             for student in session.students:
                 student_name = student["name"]
                 if student_name not in student_schedules:
@@ -165,24 +150,19 @@ class PDFExporter:
             schedule: The schedule data (company name, slot) -> session
             time_slots: List of time slots as (letter, time range)
         """
-        # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        # Create the PDF document
         doc = SimpleDocTemplate(filepath, pagesize=A4, 
                                rightMargin=30, leftMargin=30,
                                topMargin=30, bottomMargin=30)
         
-        # Prepare the content
         content = []
         
-        # Add the title
         content.append(Paragraph("Unternehmensübersicht", self.styles["CustomTitle"]))
         content.append(Paragraph(f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}", 
                                 self.styles["CustomNormal"]))
         content.append(Spacer(1, 12))
         
-        # Organize by time slot
         slot_to_companies = {}
         for (company_name, slot_idx), session in schedule.items():
             if slot_idx == -1:
@@ -193,29 +173,23 @@ class PDFExporter:
                 
             slot_to_companies[slot_idx].append((company_name, session.room, len(session.students)))
             
-        # Add a table for each time slot
         for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
             if slot_idx not in slot_to_companies:
                 continue
                 
             content.append(Paragraph(f"Slot {slot_letter}: {time_range}", self.styles["CustomSubtitle"]))
             
-            # Create a table with the companies for this slot
             data = []
             
-            # Table header
             headers = ["Unternehmen", "Raum", "Anzahl Schüler"]
             data.append(headers)
             
-            # Add rows for each company
             for company_name, room, student_count in sorted(slot_to_companies[slot_idx], 
                                                           key=lambda x: x[0].lower()):
                 data.append([company_name, room, student_count])
                 
-            # Create the table
             table = Table(data, colWidths=[200, 100, 100])
             
-            # Style the table
             table_style = TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
@@ -236,7 +210,6 @@ class PDFExporter:
             content.append(table)
             content.append(Spacer(1, 12))
             
-        # Add a section for excluded companies
         excluded_companies = []
         for (company_name, slot_idx), session in schedule.items():
             if slot_idx == -1:
@@ -245,10 +218,8 @@ class PDFExporter:
         if excluded_companies:
             content.append(Paragraph("Ausgeschlossene Unternehmen", self.styles["CustomSubtitle"]))
             
-            # Create a bullet list of excluded companies
             for company_name in sorted(excluded_companies):
                 content.append(Paragraph(f"• {company_name}: Kein Schülerinteresse", 
                                        self.styles["CustomNormal"]))
             
-        # Build the PDF
         doc.build(content) 

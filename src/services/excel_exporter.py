@@ -5,6 +5,8 @@ from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+import tkinter as tk
+from tkinter import filedialog, messagebox
 
 from models.student import StudentPreference
 
@@ -37,35 +39,27 @@ class ExcelExporter:
             student_preferences: List of student preferences
             time_slots: List of time slots as (letter, time range)
         """
-        # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        # Create a new workbook
         wb = Workbook()
         ws = wb.active
         ws.title = "Schüler Zeitpläne"
         
-        # Add title and date
         ws.cell(row=1, column=1, value="Schüler Zeitpläne")
         ws.cell(row=1, column=1).font = Font(bold=True, size=16)
         ws.cell(row=2, column=1, value=f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
         
-        # Prepare student schedules
         student_schedules = self._prepare_student_schedules(schedule, student_preferences)
         
-        # Start row for the first student
         current_row = 4
         
-        # Add a section for each student with their schedule
         sorted_students = sorted(student_schedules.keys(), key=lambda x: x.lower())
         
         for student_name in sorted_students:
-            # Add student name header
             ws.cell(row=current_row, column=1, value=f"Schüler: {student_name}")
             ws.cell(row=current_row, column=1).font = self.subheader_font
             current_row += 1
             
-            # Add table headers
             headers = ["Slot", "Zeit", "Unternehmen", "Raum"]
             for col, header in enumerate(headers, 1):
                 cell = ws.cell(row=current_row, column=col, value=header)
@@ -76,14 +70,11 @@ class ExcelExporter:
             
             current_row += 1
             
-            # Add rows for each time slot
             student_data = student_schedules[student_name]
             
             for row_idx, (slot_idx, (slot_letter, time_range)) in enumerate(enumerate(time_slots), 0):
-                # Apply alternating row colors
                 row_fill = self.alt_row_fill if row_idx % 2 == 0 else None
                 
-                # Add slot and time
                 cell = ws.cell(row=current_row, column=1, value=slot_letter)
                 if row_fill:
                     cell.fill = row_fill
@@ -94,7 +85,6 @@ class ExcelExporter:
                     cell.fill = row_fill
                 cell.border = self.thin_border
                 
-                # Add company and room if available for this slot
                 if slot_idx in student_data:
                     company_name, room = student_data[slot_idx]
                     
@@ -120,7 +110,6 @@ class ExcelExporter:
                 
                 current_row += 1
             
-            # Add a blank row between students
             current_row += 1
         
         # Adjust column widths
@@ -129,7 +118,6 @@ class ExcelExporter:
         ws.column_dimensions['C'].width = 40  # Unternehmen
         ws.column_dimensions['D'].width = 20  # Raum
         
-        # Save the workbook
         wb.save(filepath)
         return True
             
@@ -142,16 +130,13 @@ class ExcelExporter:
         """
         student_schedules = {}
         
-        # Initialize schedules for all students
         for student in student_preferences:
             student_schedules[student.name] = {}
             
-        # Fill in the schedules based on company sessions
         for (company_id, slot_idx), session in schedule.items():
             if slot_idx == -1:
                 continue  # Skip excluded companies
                 
-            # Add each student in this session to their schedule
             for student in session.students:
                 student_name = student["name"]
                 if student_name not in student_schedules:
@@ -171,20 +156,16 @@ class ExcelExporter:
             schedule: The schedule data (company name, slot) -> session
             time_slots: List of time slots as (letter, time range)
         """
-        # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        # Create a new workbook
         wb = Workbook()
         ws = wb.active
         ws.title = "Unternehmensübersicht"
         
-        # Add title and date
         ws.cell(row=1, column=1, value="Unternehmensübersicht")
         ws.cell(row=1, column=1).font = Font(bold=True, size=16)
         ws.cell(row=2, column=1, value=f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
         
-        # Organize by time slot
         slot_to_companies = {}
         for (company_id, slot_idx), session in schedule.items():
             if slot_idx == -1:
@@ -195,20 +176,16 @@ class ExcelExporter:
                 
             slot_to_companies[slot_idx].append((session.company.name, session.room, len(session.students)))
         
-        # Start row for the first section
         current_row = 4
         
-        # Add a table for each time slot
         for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
             if slot_idx not in slot_to_companies:
                 continue
                 
-            # Add slot title
             ws.cell(row=current_row, column=1, value=f"Slot {slot_letter}: {time_range}")
             ws.cell(row=current_row, column=1).font = self.subheader_font
             current_row += 1
             
-            # Add table headers
             headers = ["Unternehmen", "Raum", "Anzahl Schüler"]
             for col, header in enumerate(headers, 1):
                 cell = ws.cell(row=current_row, column=col, value=header)
@@ -219,11 +196,9 @@ class ExcelExporter:
             
             current_row += 1
             
-            # Add rows for each company
             for row_idx, (company_name, room, student_count) in enumerate(
                 sorted(slot_to_companies[slot_idx], key=lambda x: x[0].lower())
             ):
-                # Apply alternating row colors
                 row_fill = self.alt_row_fill if row_idx % 2 == 0 else None
                 
                 cell = ws.cell(row=current_row, column=1, value=company_name)
@@ -244,22 +219,18 @@ class ExcelExporter:
                 
                 current_row += 1
             
-            # Add a blank row between sections
             current_row += 1
         
-        # Add a section for excluded companies
         excluded_companies = []
         for (company_id, slot_idx), session in schedule.items():
             if slot_idx == -1:
                 excluded_companies.append(session.company.name)
                 
         if excluded_companies:
-            # Add title for excluded companies
             ws.cell(row=current_row, column=1, value="Ausgeschlossene Unternehmen")
             ws.cell(row=current_row, column=1).font = self.subheader_font
             current_row += 1
             
-            # Add each excluded company
             for company_name in sorted(excluded_companies):
                 ws.cell(row=current_row, column=1, value=f"• {company_name}: Kein Schülerinteresse")
                 current_row += 1
@@ -269,7 +240,6 @@ class ExcelExporter:
         ws.column_dimensions['B'].width = 20  # Raum
         ws.column_dimensions['C'].width = 15  # Anzahl Schüler
         
-        # Save the workbook
         wb.save(filepath)
         return True
 
@@ -284,21 +254,17 @@ class ExcelExporter:
             time_slots: List of time slots as (letter, time range)
             preview_mode: If True, only export a subset of companies for preview
         """
-        # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        # Create a new workbook
         wb = Workbook()
         ws = wb.active
         ws.title = "Anwesenheitslisten"
         
-        # Sort sessions by company name and slot
         sorted_sessions = sorted(
             schedule.items(),
             key=lambda x: (x[0][0], x[0][1]),
         )
         
-        # For preview mode, limit the number of companies
         if preview_mode:
             company_ids = list(
                 set(company_id for (company_id, _), _ in sorted_sessions)
@@ -311,31 +277,24 @@ class ExcelExporter:
                 if key[0] in company_ids
             ]
         
-        # Start row for the first company
         current_row = 1
         
-        # Process each company session
         for (company_id, slot_idx), session in sorted_sessions:
-            # Skip excluded companies
             if slot_idx == -1:
                 continue
                 
-            # Get the slot letter and time range
             slot_letter, time_range = time_slots[slot_idx]
             
-            # Add company header
             ws.cell(row=current_row, column=1, value=session.company.name)
             ws.cell(row=current_row, column=1).font = Font(bold=True, size=14)
             current_row += 1
             
-            # Add session information
             ws.cell(row=current_row, column=1, value=f"Zeitfenster: {slot_letter} ({time_range})")
             current_row += 1
             
             ws.cell(row=current_row, column=1, value=f"Raum: {session.room}")
             current_row += 1
             
-            # Add table headers
             headers = ["Nr.", "Name", "Klasse", "Anwesend"]
             for col, header in enumerate(headers, 1):
                 cell = ws.cell(row=current_row, column=col, value=header)
@@ -346,45 +305,30 @@ class ExcelExporter:
             
             current_row += 1
             
-            # Check if the session has any students
             if len(session.students) == 0:
-                # If no students, show a message
                 cell = ws.cell(row=current_row, column=2, value="Kein Schülerinteresse")
                 cell.border = self.thin_border
                 current_row += 1
             else:
-                # Add student rows
                 for i, student in enumerate(sorted(session.students, key=lambda x: x["name"]), 1):
                     class_name = student["id"].split("_")[0]
                     
-                    # Add student number
                     cell = ws.cell(row=current_row, column=1, value=i)
                     cell.border = self.thin_border
                     cell.alignment = Alignment(horizontal='center')
                     
-                    # Add student name
                     cell = ws.cell(row=current_row, column=2, value=student["name"])
                     cell.border = self.thin_border
                     
-                    # Add class name
                     cell = ws.cell(row=current_row, column=3, value=class_name)
                     cell.border = self.thin_border
                     cell.alignment = Alignment(horizontal='center')
                     
-                    # Add empty cell for attendance
                     cell = ws.cell(row=current_row, column=4, value="")
                     cell.border = self.thin_border
                     
                     current_row += 1
-                
-                # Check if there are no students
-                if len(session.students) == 0:
-                    # If no students, add a message row
-                    cell = ws.cell(row=current_row, column=2, value="Keine Teilnehmer")
-                    cell.border = self.thin_border
-                    current_row += 1
             
-            # Add space between companies
             current_row += 2
         
         # Adjust column widths
@@ -393,7 +337,6 @@ class ExcelExporter:
         ws.column_dimensions['C'].width = 15  # Klasse
         ws.column_dimensions['D'].width = 15  # Anwesend
         
-        # Save the workbook
         wb.save(filepath)
         return True
         
@@ -406,23 +349,18 @@ class ExcelExporter:
             rooms: List of room names
             room_capacities: Dictionary mapping room names to their capacities
         """
-        # Create the directory if it doesn't exist
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        # Create a new workbook
         wb = Workbook()
         ws = wb.active
         ws.title = "Raumliste"
         
-        # Add title and date
         ws.cell(row=1, column=1, value="Raumliste")
         ws.cell(row=1, column=1).font = Font(bold=True, size=16)
         ws.cell(row=2, column=1, value=f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
         
-        # Start row for the first room
         current_row = 4
         
-        # Add table headers
         headers = ["Raum", "Kapazität"]
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=current_row, column=col, value=header)
@@ -433,18 +371,14 @@ class ExcelExporter:
         
         current_row += 1
         
-        # Add rows for each room
         for row_idx, room_name in enumerate(sorted(rooms)):
-            # Apply alternating row colors
             row_fill = self.alt_row_fill if row_idx % 2 == 0 else None
             
-            # Add room name
             cell = ws.cell(row=current_row, column=1, value=room_name)
             if row_fill:
                 cell.fill = row_fill
             cell.border = self.thin_border
             
-            # Add capacity
             capacity = room_capacities.get(room_name, 30)  # Default to 30 if not specified
             cell = ws.cell(row=current_row, column=2, value=capacity)
             if row_fill:
@@ -458,6 +392,42 @@ class ExcelExporter:
         ws.column_dimensions['A'].width = 30  # Raum
         ws.column_dimensions['B'].width = 15  # Kapazität
         
-        # Save the workbook
         wb.save(filepath)
-        return True 
+        return True
+
+    def export_schedule(self, filepath: str, schedule: dict, time_slots: list, companies: list) -> bool:
+        """Exports the main schedule grid view to an Excel file."""
+        try:
+            header = ["Unternehmen"] + [f"{slot} ({time})" for slot, time in time_slots]
+            data = []
+
+            for company in companies:
+                # Skip companies that have been excluded (assuming an entry with slot_idx -1 exists)
+                if any((company.unique_id, -1) == key for key in schedule.keys()):
+                    continue
+                    
+                display_name = str(company)  # Use the __str__ representation
+                row = [display_name]
+
+                for slot_idx, _ in enumerate(time_slots):
+                    if slot_idx < company.earliest_slot or slot_idx in company.blocked_slots:
+                        text = "---" # Indicate blocked or too early slot
+                    else:
+                        session = schedule.get((company.unique_id, slot_idx))
+                        if session:
+                            text = f"Raum {session.room}" # Show room
+                        else:
+                            text = "---" # Indicate no session scheduled
+                    row.append(text)
+                data.append(row)
+
+            df = pd.DataFrame(data, columns=header)
+            df.to_excel(filepath, index=False)
+            return True
+            
+        except Exception as e:
+            #import traceback
+            #traceback.print_exc()
+            # Use messagebox for errors in exporter
+            messagebox.showerror("Excel Export Fehler", f"Fehler beim Exportieren des Zeitplans nach Excel: {str(e)}")
+            return False 
