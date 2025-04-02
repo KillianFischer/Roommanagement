@@ -7,3 +7,9 @@
 __pycache__/
 *.so
 *.pyc
+
+# Exports
+*.pdf
+.env
+
+context/

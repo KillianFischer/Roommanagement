@@ -1,371 +1,431 @@
-from typing import List, Dict, Optional, Tuple
+from typing import List, Optional, Callable
 import pandas as pd
 from tkinter import messagebox
 
+from services.scheduler_core import SchedulerCore
+from services.excel_exporter import ExcelExporter
+from services.attendance_exporter import AttendanceExporter
 from models.student import StudentPreference
-from models.company import Company, CompanySession
 
-class SchedulerService:
+
+class Scheduler:
     def __init__(self):
-        self.student_preferences: Optional[List[StudentPreference]] = None
-        self.companies: Optional[List[Company]] = None
-        self.rooms: Optional[List[str]] = None
-        # Schedule: maps, company name, slot
-        self.schedule: Dict[Tuple[str, int], CompanySession] = {}
-        # list of tuples: slot letter, time range
-        self.time_slots = [
-            ('A', '8:45 – 9:30'),
-            ('B', '9:50 – 10:35'),
-            ('C', '10:35 – 11:20'),
-            ('D', '11:40 – 12:25'),
-            ('E', '12:25 – 13:10')
-        ]
+        self.core = SchedulerCore()
+        self.excel_exporter = ExcelExporter()
+        self.attendance_exporter = AttendanceExporter()
+        self.time_slots = self.core.time_slots
 
     def load_student_preferences(self, df: pd.DataFrame) -> bool:
-        if df is None or df.empty:
-            return False
-        
-        company_mapping = {}
-        if self.companies:
-            for idx, company in enumerate(self.companies, 1):
-                normalized_name = company.name.strip()
-                company_mapping[idx] = normalized_name
-                company_mapping[str(idx)] = normalized_name
-        
-        df.columns = df.columns.str.strip()
-        self.student_preferences = StudentPreference.from_dataframe(df, company_mapping)
-        return True
+        return self.core.load_student_preferences(df)
 
     def load_companies(self, df: pd.DataFrame) -> bool:
-        if df is None or df.empty:
+        required_columns = [
+            "Unternehmen",
+            "Max. Teilnehmer",
+            "Max. Veranstaltungen",
+            "Frühester Zeitpunkt",
+        ]
+
+        field_column = "Fachrichtung"
+        
+        for col in required_columns:
+            if col not in df.columns:
+                messagebox.showerror("Fehler bei Import", f"Erforderliche Spalte fehlt in Unternehmensliste: {col}")
+                return False
+
+        try:
+            companies = []
+            for _, row in df.iterrows():
+                name = str(row["Unternehmen"]).strip()
+                field = str(row[field_column]).strip() if field_column and pd.notna(row[field_column]) else ""
+                
+                max_participants = int(row["Max. Teilnehmer"])
+
+                max_sessions = int(row["Max. Veranstaltungen"])
+                
+                earliest_slot = 0  # Default A slot
+                if pd.notna(row["Frühester Zeitpunkt"]):
+                    slot_letter = str(row["Frühester Zeitpunkt"]).strip().upper()
+                    if slot_letter in ["A", "B", "C", "D", "E"]:
+                        earliest_slot = ord(slot_letter) - ord("A")
+                
+                companies.append(
+                    Company(
+                        name=name,
+                        field=field,
+                        capacity=max_participants,
+                        max_sessions=max_sessions,
+                        earliest_slot=earliest_slot,
+                    )
+                )
+            
+            self.core.companies = companies
+            return True
+        except Exception as e:
+            messagebox.showerror("Fehler bei Import", f"Fehler beim Verarbeiten der Unternehmensliste: {str(e)}")
             return False
-        df.columns = df.columns.str.strip()
-        self.companies = Company.from_dataframe(df)
-        return True
 
     def load_rooms(self, df: pd.DataFrame) -> bool:
-        if df is None or df.empty:
-            return False
-        self.rooms = [str(int(room)) for room in df.iloc[:, 0].tolist() 
-                      if pd.notna(room) and str(room).strip() != 'Aula' and str(room).strip().isdigit()]
-        return True
+        return self.core.load_rooms(df)
 
     def is_data_loaded(self) -> bool:
-        return all([
-            self.student_preferences is not None and len(self.student_preferences) > 0,
-            self.companies is not None and len(self.companies) > 0,
-            self.rooms is not None and len(self.rooms) > 0
-        ])
+        return self.core.is_data_loaded()
 
     def generate_schedule(self) -> bool:
+        """Generate a schedule using the core scheduler"""
+        if not self.is_data_loaded():
+            messagebox.showerror("Fehler bei Zeitplanerstellung", "Bitte laden Sie zuerst alle Daten (Schüler, Unternehmen, Räume).")
+            return False
+        
         try:
-            company_to_number = {}
-            number_to_company = {}
-            for idx, company in enumerate(self.companies, 1):
-                normalized_name = company.name.strip()
-                company_to_number[normalized_name] = str(idx)
-                number_to_company[str(idx)] = normalized_name
-                number_to_company[idx] = normalized_name
-
-            first_wish_counts = {}
-            for student in self.student_preferences:
-                if student.wishes:
-                    first_wish = str(student.wishes[0]).strip()
-                    # Try: to convert to number, if not possible use the string directly
-                    try:
-                        wish_num = int(float(first_wish))
-                        company_name = number_to_company.get(wish_num, first_wish)
-                    except (ValueError, TypeError):
-                        company_name = first_wish
-                    first_wish_counts[company_name] = first_wish_counts.get(company_name, 0) + 1
-
-            sessions_per_company = {}
-            for company in self.companies:
-                normalized_name = company.name.strip()
-                first_wish_count = first_wish_counts.get(normalized_name, 0)
-                if first_wish_count > 0:
-                    min_sessions = -(-first_wish_count // company.capacity)
-                    sessions_per_company[normalized_name] = min(min_sessions, company.max_sessions)
-
-            sorted_companies = sorted(
-                self.companies,
-                key=lambda x: first_wish_counts.get(x.name.strip(), 0),
-                reverse=True
-            )
-
-            self.schedule.clear()
-            company_rooms = {}
-            available_rooms = self.rooms.copy()
+            success = self.core.generate_schedule()
             
-            # for Polizei - assign Aula
-            polizei_company = next((company for company in sorted_companies if company.name.strip() == "Polizei"), None)
-            if polizei_company:
-                company_rooms["Polizei"] = "Aula"
-                sorted_companies.remove(polizei_company)
-                # ToDo
-                for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
-                    if slot_idx >= polizei_company.earliest_slot:
-                        session = CompanySession(
-                            company=polizei_company,
-                            room="Aula",
-                            time_slot=slot_letter,
-                            time_range=time_range
-                        )
-                        self.schedule[(polizei_company.name, slot_idx)] = session
-            
-            # non police companies
-            for company in sorted_companies:
-                if not available_rooms:
-                    available_rooms = self.rooms.copy()
-                company_room = available_rooms.pop(0)
-                company_rooms[company.name] = company_room
-
-                # earliest slot
-                for slot_offset in range(len(self.time_slots) - company.earliest_slot):
-                    slot_idx = company.earliest_slot + slot_offset
-                    slot_letter, time_range = self.time_slots[slot_idx]
-                    session = CompanySession(
-                        company=company,
-                        room=company_room,
-                        time_slot=slot_letter,
-                        time_range=time_range
-                    )
-                    self.schedule[(company.name, slot_idx)] = session
-
+            if not success:
+                return False 
+                
             return True
-
+        
         except Exception as e:
-            messagebox.showerror("Error", f"Fehler bei der Zeitplangenerierung: {str(e)}")
-            self.schedule.clear()
+            messagebox.showerror("Fehler bei Zeitplanerstellung", f"Unerwarteter Fehler bei der Generierung des Zeitplans: {str(e)}")
             return False
 
-    def get_schedule(self) -> Dict[Tuple[str,int], CompanySession]:
-        return self.schedule
+    def get_schedule(self):
+        """Get the current schedule"""
+        return self.core.schedule
 
-    def export_student_schedules(self):
-        """
-        Exportiert Schülerzeitpläne als PDF mit 4 Schülern pro Seite,
-        sortiert nach Klassen.
-        """
-        try:
-            from reportlab.lib import colors
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-            from reportlab.lib.units import mm
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-            
-            # group students
-            class_schedules = {}
-            for student in self.student_preferences:
-                class_name = student.student_id.split('_')[0]
-                if class_name not in class_schedules:
-                    class_schedules[class_name] = []
-                
-                # collect all appointments
-                student_schedule = []
-                realized_wishes = []
-                for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
-                    session_found = False
-                    for wish_idx, wish in enumerate(student.wishes):
-                        key = (str(wish).strip(), slot_idx)
-                        if key in self.schedule:
-                            session = self.schedule[key]
-                            if any(s['id'] == student.student_id for s in session.students):
-                                student_schedule.append({
-                                    'time': f"{slot_letter} ({time_range})",
-                                    'company': str(wish).strip(),
-                                    'room': session.room,
-                                    'wish_number': wish_idx + 1
-                                })
-                                realized_wishes.append(True)
-                                session_found = True
-                                break
-                    if not session_found:
-                        realized_wishes.append(False)
-                
-                # calculate Erfüllungsscore
-                satisfaction_score = student.get_satisfaction_score(realized_wishes)
-                
-                class_schedules[class_name].append({
-                    'name': student.name,
-                    'schedule': sorted(student_schedule, key=lambda x: x['time']),
-                    'score': satisfaction_score
-                })
+    def calculate_overall_fulfillment_score(self) -> float:
+        """Calculate the overall score for how well student wishes were fulfilled"""
+        if not self.core.schedule:
+            return 0
+        
+        # Use the direct method from SchedulerCore
+        return self.core.calculate_overall_fulfillment_score()
 
-            # Create PDF
-            doc = SimpleDocTemplate(
-                "student_schedules.pdf",
-                pagesize=A4,
-                rightMargin=10*mm,
-                leftMargin=10*mm,
-                topMargin=10*mm,
-                bottomMargin=10*mm
-            )
+    def get_student_fulfillment_scores(self) -> pd.DataFrame:
+        if not self.core.schedule:
+            return pd.DataFrame()
             
-            styles = getSampleStyleSheet()
-            title_style = ParagraphStyle(
-                'CustomTitle',
-                parent=styles['Heading1'],
-                fontSize=12,
-                spaceAfter=10
-            )
+        student_data = []
+        
+        company_id_to_num = {}
+        for company in self.core.companies:
+            try:
+                num_id = int(float(company.name.strip()))
+                company_id_to_num[company.unique_id] = num_id
+            except (ValueError, TypeError):
+                pass
+        
+        for student in self.core.student_preferences:
+            if not student.wishes:
+                continue
+                
+            student_schedule = self.get_student_schedule(student.student_id)
             
-            story = []
+            wish_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, None: 0}
+            total_score = 0
             
-            # For each class
-            for class_name, students in sorted(class_schedules.items()):
-                students_processed = 0
-                while students_processed < len(students):
-                    # 4 students for a page
-                    page_students = students[students_processed:students_processed+4]
+            for slot_letter, time_range, company_name, room, wish_number in student_schedule:
+                if wish_number and wish_number != "-":
+                    wish_counts[wish_number] += 1
+                    # Calculate score based on wish rank (6 for 1st wish, 5 for 2nd, etc.)
+                    total_score += (7 - wish_number)
+            
+            max_possible_score = 21  # Maximum possible score (6+5+4+3+2+1)
+            fulfillment_pct = (total_score / max_possible_score) * 100
+            
+            record = {
+                "Student ID": student.student_id,
+                "Name": student.name,
+                "Total Score": total_score,
+                "Max Score": max_possible_score,
+                "Fulfillment %": round(fulfillment_pct, 2),
+                "1st Wishes": wish_counts.get(1, 0),
+                "2nd Wishes": wish_counts.get(2, 0),
+                "3rd Wishes": wish_counts.get(3, 0),
+                "4th Wishes": wish_counts.get(4, 0),
+                "5th Wishes": wish_counts.get(5, 0),
+                "6th Wishes": wish_counts.get(6, 0),
+                "No Match": len(student_schedule) - sum(wish_counts.values()),
+            }
+            
+            for slot_letter, time_range, company_name, room, wish_number in student_schedule:
+                record[f"Slot {slot_letter}"] = company_name
+                record[f"Wish {slot_letter}"] = wish_number
+                
+            student_data.append(record)
+            
+        df = pd.DataFrame(student_data)
+        
+        if len(df) > 0:
+            total_students = len(df)
+            students_with_wishes = len(df[df["Total Score"] > 0])
+            students_with_top_three = len(df[df["1st Wishes"] + df["2nd Wishes"] + df["3rd Wishes"] > 0])
+            
+            return df
+        
+    def get_student_schedule(self, student_id):
+        if not self.core.schedule:
+            return []
+            
+        schedule = []
+        for (company_id, slot_idx), session in self.core.schedule.items():
+            if slot_idx == -1:  # Skip excluded companies
+                continue
+                
+            for student_info in session.students:
+                if student_info["id"] == student_id:
+                    wish_number = student_info.get("wish_number", "-")
                     
-                    # students
-                    for student in page_students:
-                        # Header
-                        story.append(Paragraph(
-                            f"{student['name']} - Klasse {class_name} - Score: {student['score']:.1f}%",
-                            title_style
-                        ))
-                        
-                        # Schedule table
-                        schedule_data = [['Time', 'Company', 'Room', 'Wish']]
-                        for appointment in student['schedule']:
-                            schedule_data.append([
-                                appointment['time'],
-                                appointment['company'],
-                                appointment['room'],
-                                str(appointment['wish_number'])
-                            ])
-                        
-                        t = Table(
-                            schedule_data,
-                            colWidths=[60*mm, 60*mm, 30*mm, 20*mm],
-                            style=TableStyle([
-                                ('GRID', (0,0), (-1,-1), 0.25, colors.red),
-                                ('BACKGROUND', (0,0), (-1,0), colors.grey),
-                                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                                ('ALIGN', (0,1), (-2,-1), 'LEFT'),
-                                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                                ('FONTSIZE', (0,0), (-1,0), 10),
-                                ('BOTTOMPADDING', (0,0), (-1,0), 12),
-                                ('BACKGROUND', (0,1), (-1,-1), colors.white),
-                                ('TEXTCOLOR', (0,1), (-1,-1), colors.black),
-                                ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
-                                ('FONTSIZE', (0,1), (-1,-1), 10),
-                                ('TOPPADDING', (0,1), (-1,-1), 6),
-                                ('BOTTOMPADDING', (0,1), (-1,-1), 6),
-                                ('LEADING', (0,1), (-1,-1), 8)
-                            ])
-                        )
-                        story.append(t)
-                        story.append(Paragraph("<br/><br/>", styles['Normal']))
+                    slot_letter, time_range = self.time_slots[slot_idx]
                     
-                    students_processed += 4
+                    schedule.append((
+                        slot_letter,
+                        time_range,
+                        session.company.name,
+                        session.room,
+                        wish_number
+                    ))
+                    break
+                    
+        return sorted(schedule, key=lambda x: x[0])
+        
+    def get_fulfillment_statistics(self):
+        """Get statistics on wish fulfillment"""
+        if not self.core.schedule:
+            return {}
             
-            doc.build(story)
-            messagebox.showinfo(
-                "Export erfolgreich",
-                "Schülerzeitpläne wurden unter student_schedules.pdf gespeichert."
-            )
-            
-        except Exception as e:
-            messagebox.showerror(
-                "Export Error",
-                f"Fehler beim Exportieren der Schülerzeitpläne: {str(e)}"
-            )
+        score = self.core.calculate_overall_fulfillment_score()
+        
+        return {
+            "fulfillment_percentage": score,
+            "students_with_wishes": len([s for s in self.core.student_preferences if s.wishes and any(wish for wish in s.wishes)]),
+            "students_with_at_least_one_wish": len([s for s in self.core.student_preferences if s.wishes and any(wish for wish in s.wishes)]),
+            "students_with_top_three_wishes": len([s for s in self.core.student_preferences if s.wishes and any(wish for wish in s.wishes[:3])]),
+            "average_weighted_fulfillment": score,
+            "students_with_at_least_one_wish_pct": 100.0,  # Since we only count students with wishes
+            "students_with_top_three_wishes_pct": 100.0,  # Since we only count students with wishes
+        }
 
-    def export_attendance_lists(self, preview_mode=False):
-        """
-        Exportiert Anwesenheitslisten für jede Veranstaltung als PDF.
-        In der Vorschau werden nur die ersten 6 Unternehmen angezeigt.
-        """
+    def export_student_schedules_pdf(self, filepath: str) -> bool:
+        """Export student schedules as PDF"""
+        if not self.core.schedule:
+            messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
+            return False
         try:
-            from reportlab.lib import colors
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib.styles import getSampleStyleSheet
-            from reportlab.lib.units import mm
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-            
-            doc = SimpleDocTemplate(
-                "attendance_lists.pdf",
-                pagesize=A4,
-                rightMargin=10*mm,
-                leftMargin=10*mm,
-                topMargin=10*mm,
-                bottomMargin=10*mm
+            self.pdf_exporter.export_student_schedules(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                student_preferences=self.core.student_preferences, 
+                time_slots=self.time_slots
             )
-            
-            styles = getSampleStyleSheet()
-            story = []
-            
-            # Sort by company name and time slot
-            sorted_sessions = sorted(
-                self.schedule.items(),
-                key=lambda x: (x[0][0], x[0][1])  # Sort by company name, then slot
-            )
-            
-            # In preview mode, limit to first 6 companies because it gets laggy if not
-            if preview_mode:
-                # Get unique company names ToDo: fachrichtung noch nicht berücksichtigt
-                company_names = list(set(company_name for (company_name, _), _ in sorted_sessions))
-                # Limit to first 6 companies
-                if len(company_names) > 6:
-                    company_names = company_names[:6]
-                # Filter sessions to only include these companies
-                sorted_sessions = [(key, session) for (key, session) in sorted_sessions 
-                                  if key[0] in company_names]
-            
-            for (company_name, slot_idx), session in sorted_sessions:
-                # Header
-                story.append(Paragraph(
-                    f"<b>{company_name}</b><br/>"
-                    f"Zeitfenster: {session.time_slot} ({session.time_range})<br/>"
-                    f"Raum: {session.room}",
-                    styles['Heading1']
-                ))
-                
-                # Attendee list
-                data = [['Nr.', 'Name', 'Klasse', 'Unterschrift']]
-                for i, student in enumerate(sorted(session.students, key=lambda x: x['name']), 1):
-                    class_name = student['id'].split('_')[0]
-                    data.append([str(i), student['name'], class_name, ''])
-                
-                # Add empty rows
-                empty_rows = [['', '', '', ''] for _ in range(5)]
-                for i, empty_row in enumerate(empty_rows, len(data)):
-                    empty_row[0] = str(i)
-                data.extend(empty_rows)
-                
-                t = Table(
-                    data,
-                    colWidths=[20*mm, 80*mm, 30*mm, 50*mm],
-                    style=TableStyle([
-                        ('GRID', (0,0), (-1,-1), 0.25, colors.black),
-                        ('BACKGROUND', (0,0), (-1,0), colors.grey),
-                        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                        ('FONTSIZE', (0,0), (-1,0), 10),
-                        ('BOTTOMPADDING', (0,0), (-1,0), 12),
-                        ('BACKGROUND', (0,1), (-1,-1), colors.white),
-                        ('TEXTCOLOR', (0,1), (-1,-1), colors.black),
-                        ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
-                        ('FONTSIZE', (0,1), (-1,-1), 10),
-                        ('TOPPADDING', (0,1), (-1,-1), 6),
-                        ('BOTTOMPADDING', (0,1), (-1,-1), 6)
-                    ])
-                )
-                story.append(t)
-                story.append(Paragraph("<br/><br/>", styles['Normal']))
-            
-            doc.build(story)
-            messagebox.showinfo(
-                "Export erfolgreich",
-                "Anwesenheitslisten wurden unter attendance_lists.pdf gespeichert."
-            )
-            
+            return True
         except Exception as e:
-            messagebox.showerror(
-                "Export Fehler",
-                f"Fehler beim Exportieren der Anwesenheitslisten: {str(e)}"
+            messagebox.showerror("Exportfehler", f"Fehler beim PDF-Export der Schülerzeitpläne: {str(e)}")
+            return False
+            
+    def export_student_schedules_excel(self, filepath: str) -> bool:
+        """Export student schedules as Excel"""
+        if not self.core.schedule:
+            messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
+            return False   
+        try:
+            self.excel_exporter.export_student_schedules(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                student_preferences=self.core.student_preferences,
+                time_slots=self.time_slots
             )
+            return True
+        except Exception as e:
+            messagebox.showerror("Exportfehler", f"Fehler beim Excel-Export der Schülerzeitpläne: {str(e)}")
+            return False
+
+    def export_company_overview_pdf(self, filepath: str) -> bool:
+        """Export company overview as PDF"""
+        if not self.core.schedule:
+            messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
+            return False
+            
+        try:
+            self.pdf_exporter.export_company_overview(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                time_slots=self.time_slots
+            )
+            return True
+        except Exception as e:
+            messagebox.showerror("Exportfehler", f"Fehler beim PDF-Export der Unternehmensübersicht: {str(e)}")
+            return False
+            
+    def export_company_overview_excel(self, filepath: str) -> bool:
+        """Export company overview as Excel"""
+        if not self.core.schedule:
+            messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
+            return False
+        try:
+            self.excel_exporter.export_company_overview(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                time_slots=self.time_slots
+            )
+            return True
+        except Exception as e:
+            messagebox.showerror("Exportfehler", f"Fehler beim Excel-Export der Unternehmensübersicht: {str(e)}")
+            return False
+
+    def export_attendance_lists_pdf(self, filepath: str, preview_mode=False) -> bool:
+        """Export attendance lists to PDF"""
+        if not self.core.schedule:
+            messagebox.showerror("Exportfehler", "Bitte erst den Zeitplan generieren!")
+            return False
+            
+        return self.attendance_exporter.export_attendance_lists(filepath, self.core.schedule, self.core.time_slots, preview_mode=preview_mode)
+            
+    def export_attendance_lists_excel(self, filepath: str, preview_mode=False) -> bool:
+        """Export attendance lists to Excel"""
+        if not self.core.schedule:
+            messagebox.showerror("Exportfehler", "Bitte erst den Zeitplan generieren!")
+            return False
+            
+        return self.excel_exporter.export_attendance_lists(filepath, self.core.schedule, self.core.time_slots, preview_mode=preview_mode)
+        
+    def export_room_list_excel(self, filepath: str) -> bool:
+        """Export room list with capacities to Excel"""
+        if not self.core.rooms or not self.core.room_capacities:
+            messagebox.showerror("Exportfehler", "Bitte erst die Räume importieren!")
+            return False
+            
+        return self.excel_exporter.export_room_list(filepath, self.core.rooms, self.core.room_capacities)
+
+    def export_schedule_excel(self, filepath: str) -> bool:
+        """Exports the main schedule grid view to an Excel file."""
+        if not self.core.schedule:
+            messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
+            return False
+            
+        try:
+            success = self.excel_exporter.export_schedule(
+                filepath=filepath,
+                schedule=self.core.schedule,
+                time_slots=self.time_slots,
+                companies=self.core.companies
+            )
+            return success
+        except Exception as e:
+            messagebox.showerror("Exportfehler", f"Fehler beim Exportieren des Zeitplans nach Excel: {str(e)}")
+            return False
+
+    def get_student_schedules(self):
+        """Get schedules organized by student"""
+        if not self.core.schedule:
+            return {}
+            
+        student_schedules = {}
+        
+        for (company_id, slot_idx), session in self.core.schedule.items():
+            if slot_idx == -1:  # Skip excluded companies
+                continue
+                
+            slot_letter, time_range = self.time_slots[slot_idx]
+            company_name = session.get_company_display_name()
+            room = session.room
+            
+            for student in session.students:
+                student_name = student["name"]
+                if student_name not in student_schedules:
+                    student_schedules[student_name] = []
+                
+                wish_number = student.get("wish_number", "-")
+                    
+                student_schedules[student_name].append((slot_letter, time_range, company_name, room, wish_number))
+                
+        for student_name in student_schedules:
+            student_schedules[student_name].sort()
+            
+        return student_schedules
+        
+    def get_company_overview(self):
+        if not self.is_data_loaded() or not self.get_schedule():
+            return {}
+            
+        slot_to_companies = {}
+        
+        for (company_id, slot_idx), session in self.get_schedule().items():
+            if slot_idx == -1:  # Skip excluded companies
+                continue
+                
+            slot_letter, _ = self.time_slots[slot_idx]
+            
+            if slot_letter not in slot_to_companies:
+                slot_to_companies[slot_letter] = []
+            
+            display_name = session.get_company_display_name() 
+                
+            slot_to_companies[slot_letter].append((
+                display_name,
+                session.room,
+                len(session.students)
+            ))
+                
+        for slot_letter in slot_to_companies:
+            slot_to_companies[slot_letter].sort(key=lambda x: x[0].lower())
+            
+        return slot_to_companies
+        
+    def get_excluded_companies(self):
+        """
+        Get list of excluded companies
+        
+        Returns:
+            list: List of excluded company display names
+        """
+        if not self.is_data_loaded() or not self.get_schedule():
+            return []
+            
+        excluded_companies = []
+        
+        for (company_id, slot_idx), session in self.get_schedule().items():
+            if slot_idx == -1:
+                excluded_companies.append(session.get_company_display_name())
+                
+        return sorted(excluded_companies)
+        
+    @property
+    def student_preferences(self) -> Optional[List[StudentPreference]]:
+        return self.core.student_preferences
+
+
+class Company:
+    def __init__(
+        self, name, field="", capacity=0, max_sessions=0, earliest_slot=0, blocked_slots=None, fixed_room=None
+    ):
+        self.name = name
+        self.field = field
+        self.capacity = capacity
+        self.max_sessions = max_sessions
+        self.earliest_slot = earliest_slot
+        self.blocked_slots = blocked_slots or []
+        self.fixed_room = fixed_room
+        # Unique id that combines name and field
+        self.unique_id = f"{name}_{field}" if field else name
+        self.always_show_field = False
+    
+    def __str__(self):
+        if self.field:
+            return f"{self.name} ({self.field})"
+        return self.name
+
+
+class Session:
+    def __init__(self, company, room):
+        self.company = company
+        self.room = room
+        self.students = []
+        
+    def __str__(self):
+        return f"Session({self.company}, {self.room}, {len(self.students)} students)"
+        
+    def get_company_display_name(self):
+        if self.company.field:
+            return f"{self.company.name} ({self.company.field})"
+        return self.company.name
