@@ -4,44 +4,21 @@ import os
 import sys
 
 # Add the src directory 
+from test.test_zoneinfo.test_zoneinfo_property import MAX_UTC
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))
 
 from models.company import Company, CompanySession
 
-# Import folder
 IMPORT_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "import")
 
-#
-# Sample data
-#
-@pytest.fixture
-def sample_company_data():
-    return pd.DataFrame(
-        {
-            "Unternehmen": ["Company A"],
-            "Fachrichtung": ["IT"],
-            "Max. Teilnehmer": [5],
-            "Min. Teilnehmer": [2],
-            "Frühester Zeitpunkt": ["A"],
-        }
-    )
-
-@pytest.fixture
-def real_company_data():
-    """Load the actual company data from the Excel file."""
-    file_path = os.path.join(IMPORT_FOLDER, "BOT1_Veranstaltungsliste.xlsx")
-    return pd.read_excel(file_path)
-
-#
-# Basic tests
-#
+# tests
 def test_company_from_dataframe(sample_company_data):
     """Test creating Company objects from a DataFrame."""
     companies = Company.from_dataframe(sample_company_data)
     assert len(companies) == 1
     assert companies[0].name == "Company A"
     assert companies[0].capacity == 5
-    assert companies[0].min_participants == 2
+    assert companies[0].max_sessions == 2
     assert companies[0].earliest_slot == 0
 
 def test_company_session():
@@ -49,7 +26,7 @@ def test_company_session():
     company = Company(
         name="Test Company",
         capacity=5,
-        min_participants=2,
+        max_sessions=2,
         earliest_slot=0,
         blocked_slots=[],
     )
@@ -58,7 +35,7 @@ def test_company_session():
         company=company, room="101", time_slot="A", time_range="8:45 – 9:30"
     )
 
-    assert session.is_full() == False
+    assert !session.is_full() == True # FIXME
     assert session.add_student("10A_1", "Jane Doe") == True
     assert len(session.students) == 1
     
@@ -69,15 +46,13 @@ def test_company_session():
     # Test that the session is now full
     assert session.is_full() == True
     
-    # Test that we can't add more students
+    # Test that we cant add more students
     assert session.add_student("10A_6", "Extra Student") == False
     assert len(session.students) == 5
 
-#
+
 # Tests with real data
-#
 def test_company_from_real_data(real_company_data):
-    """Test creating Company objects from real Excel data."""
     companies = Company.from_dataframe(real_company_data)
     
     # Expected number of companies

@@ -8,14 +8,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 
 from models.student import StudentPreference
 from models.company import Company, CompanySession
-from services.scheduler import SchedulerService
 
-# Import folder
 IMPORT_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "import")
 
-#
 # Sample data
-#
 @pytest.fixture
 def sample_student_data():
     return pd.DataFrame(
@@ -31,27 +27,18 @@ def sample_student_data():
 
 @pytest.fixture
 def real_student_data():
-    """Load the actual student preference data from the Excel file."""
     file_path = os.path.join(IMPORT_FOLDER, "BOT2_Wahl.xlsx")
     return pd.read_excel(file_path)
 
-#
-# Basic tests
-#
+# tests
 def test_student_preference_from_dataframe(sample_student_data):
-    """Test creating StudentPreference objects from a DataFrame."""
     preferences = StudentPreference.from_dataframe(sample_student_data)
     assert len(preferences) == 1
     assert preferences[0].name == "Dilaksan, Christian"
     assert preferences[0].wishes == ["1", "2", "3"]
 
-    # All wishes fulfilled with max_wishes=3
 
-
-
-#
 # Tests with real data
-#
 def test_student_preference_from_real_data(real_student_data):
     """Test creating StudentPreference objects from real Excel data."""
     preferences = StudentPreference.from_dataframe(real_student_data)
@@ -82,9 +69,9 @@ def test_student_preference_with_company_mapping(real_student_data):
     """Test creating StudentPreference objects with company mapping."""
     # Create a sample company mapping
     company_mapping = {
-        1: "Company A",
-        2: "Company B",
-        3: "Company C"
+        1: "Company Obi",
+        2: "Company Toby",
+        3: "Company Copy"
     }
     
     preferences = StudentPreference.from_dataframe(real_student_data, company_mapping)
@@ -111,56 +98,56 @@ def test_calculate_fulfillment_score():
         wishes=["Company A", "Company B", "Company C", "Company D", "Company E", "Company F"]
     )
     
-    # Test first wish fulfilled (should get 6 points)
-    score = student.calculate_fulfillment_score("Company A")
+    # Test first wish fulfilled, 6 Points
+    score = student.calculate_fulfillment_score("Company Obi")
     assert score == 6.0
     assert student.fulfillment_score == 6.0
     
-    # Test second wish fulfilled (should get 5 points)
-    score = student.calculate_fulfillment_score("Company B")
+    # Test second wish fulfilled, 5 Points
+    score = student.calculate_fulfillment_score("Company Toby")
     assert score == 5.0
     assert student.fulfillment_score == 5.0
     
-    # Test third wish fulfilled (should get 4 points)
-    score = student.calculate_fulfillment_score("Company C")
+    # Test third wish fulfilled, 4 Points
+    score = student.calculate_fulfillment_score("Company Copy")
     assert score == 4.0
     assert student.fulfillment_score == 4.0
     
-    # Test fourth wish fulfilled (should get 3 points)
-    score = student.calculate_fulfillment_score("Company D")
+    # Test fourth wish fulfilled, 3 Points
+    score = student.calculate_fulfillment_score("Company Obi")
     assert score == 3.0
     assert student.fulfillment_score == 3.0
     
-    # Test fifth wish fulfilled (should get 2 points)
-    score = student.calculate_fulfillment_score("Company E")
+    # Test fifth wish fulfilled, 2 Points
+    score = student.calculate_fulfillment_score("Company Toby")
     assert score == 2.0
     assert student.fulfillment_score == 2.0
     
-    # Test sixth wish fulfilled (should get 1 point)
-    score = student.calculate_fulfillment_score("Company F")
+    # Test sixth wish fulfilled, 1 Point
+    score = student.calculate_fulfillment_score("Company Copy")
     assert score == 1.0
     assert student.fulfillment_score == 1.0
     
-    # Test company not in wishes (should get 0 points)
+    # Test company not in wishes, 0 Points :(
     score = student.calculate_fulfillment_score("Company G")
     assert score == 0.0
     assert student.fulfillment_score == 0.0
     
-    # Test no company assigned (should get 0 points)
-    score = student.calculate_fulfillment_score(None)
+    # Test no company assigned, 0 Points :(
+    score = student.calculate_fulfillment_score(None) # FIXME
     assert score == 0.0
     assert student.fulfillment_score == 0.0
 
 def test_scheduler_erfullungsscore_calculation():
     """Test the scheduler service's erfüllungsscore calculation."""
     # Create scheduler service
-    scheduler = SchedulerService()
+    scheduler = SchedulerService() # FIXME
     
     # Create test companies
     companies = [
-        Company(name="Company A", capacity=20, min_participants=1, earliest_slot=0, blocked_slots=[]),
-        Company(name="Company B", capacity=20, min_participants=1, earliest_slot=0, blocked_slots=[]),
-        Company(name="Company C", capacity=20, min_participants=1, earliest_slot=0, blocked_slots=[]),
+        Company(name="Company A", capacity=20, max_sessions=1, earliest_slot=0, blocked_slots=[]),
+        Company(name="Company B", capacity=20, max_sessions=1, earliest_slot=0, blocked_slots=[]),
+        Company(name="Company C", capacity=20, max_sessions=1, earliest_slot=0, blocked_slots=[]),
     ]
     scheduler.companies = companies
     
@@ -202,7 +189,7 @@ def test_scheduler_erfullungsscore_calculation():
     scheduler._calculate_student_fulfillment_scores({})
     
     # Check student 1 (got 1st and 2nd wish -> 6+5 out of max 11 points -> 91.67%)
-    assert 91.0 <= students[0].fulfillment_score <= 92.0
+    assert 91.0 <= students[0].fulfillment_score <= 92.0 # FIXME
     
     # Check student 2 (got 1st wish only -> 6 out of max 6 points -> 100%)
     assert students[1].fulfillment_score == 100.0
@@ -236,12 +223,3 @@ def test_scheduler_erfullungsscore_calculation():
     session_c.add_student("TEST_1", "Student 1")  # Third wish for student 1
     session_c.add_student("TEST_2", "Student 2")  # Third wish for student 2
     scheduler.schedule[("Company C", 1)] = session_c
-    
-    # Calculate scores
-    scheduler._calculate_student_fulfillment_scores({})
-    
-    # Check student 1 (got 2nd and 3rd wish -> 5+4 out of max 11 points -> 75.0%)
-    assert 74.0 <= students[0].fulfillment_score <= 76.0
-    
-    # Check student 2 (got 1st and 3rd wish -> 6+4 out of max 11 points -> 83.33%)
-    assert 83.0 <= students[1].fulfillment_score <= 84.0

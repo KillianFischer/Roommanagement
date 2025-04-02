@@ -1,7 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, filedialog
-import os
-
+from tkinter import ttk, filedialog, messagebox
 
 class ScheduleTab:
     def __init__(self, parent, scheduler, app):
@@ -12,27 +10,30 @@ class ScheduleTab:
         self.schedule_frame = ttk.Frame(parent)
         parent.add(self.schedule_frame, text="Zeitplan")
 
-        # Control buttons frame
         self.schedule_controls = ttk.Frame(self.schedule_frame)
-        self.schedule_controls.grid(row=0, column=0, sticky="ew", padx=15, pady=(15, 5))
+        self.schedule_controls.grid(row=0, column=0, sticky="ew", padx=15, pady=(15, 0))
 
         ttk.Button(
             self.schedule_controls,
             text="Zeitplan generieren",
             command=self.generate_schedule,
-        ).grid(row=0, column=0, padx=5)
+        ).grid(row=0, column=0, padx=5, pady=(0, 5), sticky="w")
 
         ttk.Button(
             self.schedule_controls,
             text="Zeitplan exportieren",
-            command=self.export_schedule,
-        ).grid(row=0, column=1, padx=5)
+            command=self.export_schedule_excel,
+        ).grid(row=0, column=1, padx=5, pady=(0, 5), sticky="e")
 
-        # Schedule display frame with scrollbar
+        self.schedule_controls.columnconfigure(0, weight=1)
+        self.schedule_controls.columnconfigure(1, weight=0)
+
+        self.schedule_error_label = ttk.Label(self.schedule_frame, text="", foreground="red", wraplength=1180)
+        self.schedule_error_label.grid(row=1, column=0, sticky="ew", padx=15, pady=(0, 5))
+
         self.schedule_frame_inner = ttk.Frame(self.schedule_frame)
-        self.schedule_frame_inner.grid(row=1, column=0, sticky="nsew", padx=15, pady=15)
+        self.schedule_frame_inner.grid(row=2, column=0, sticky="nsew", padx=15, pady=(0, 15))
 
-        # scrollbar for schedule tree
         self.schedule_scrollbar = ttk.Scrollbar(self.schedule_frame_inner)
         self.schedule_scrollbar.grid(row=0, column=1, sticky="ns")
 
@@ -44,22 +45,29 @@ class ScheduleTab:
 
         self.schedule_scrollbar.config(command=self.schedule_tree.yview)
 
-        # weights for schedule frames
         self.schedule_frame.columnconfigure(0, weight=1)
-        self.schedule_frame.rowconfigure(1, weight=1)
+        self.schedule_frame.rowconfigure(1, weight=0)
+        self.schedule_frame.rowconfigure(2, weight=1)
         self.schedule_frame_inner.columnconfigure(0, weight=1)
         self.schedule_frame_inner.rowconfigure(0, weight=1)
         
+    def show_error(self, message):
+        self.schedule_error_label.config(text=message)
+
+    def clear_error(self):
+        self.schedule_error_label.config(text="")
+        
     def generate_schedule(self):
-        self.app.clear_error()
+        self.clear_error()
         if not self.scheduler.is_data_loaded():
-            self.app.show_error("Bitte laden Sie zuerst alle Daten (Schülerwünsche, Unternehmen und Räume).")
+            self.show_error("Bitte laden Sie zuerst alle Daten (Schüler, Unternehmen, Räume) im Import-Tab.")
             return
 
         if self.scheduler.generate_schedule():
             self.update_schedule_display()
+            self.clear_error()
         else:
-            self.app.show_error("Es gab ein Problem bei der Generierung des Zeitplans. Bitte überprüfen Sie die Daten.")
+            self.show_error("Fehler bei der Erstellung des Zeitplans. Details siehe Popup.")
             
     def update_schedule_display(self):
         for item in self.schedule_tree.get_children():
@@ -73,9 +81,9 @@ class ScheduleTab:
             ("E", "12:25 – 13:10"),
         ]
         
-        # Remove overall erfüllungsscore display
         if hasattr(self, 'overall_score_label'):
             self.overall_score_label.destroy()
+            delattr(self, 'overall_score_label')
 
         columns = ["Company"] + [slot for slot, _ in time_slots]
         self.schedule_tree["columns"] = columns
@@ -85,44 +93,45 @@ class ScheduleTab:
 
         for i, (slot, time_range) in enumerate(time_slots):
             self.schedule_tree.column(slot, anchor=tk.CENTER, width=150)
-            self.schedule_tree.heading(
-                slot, text=f"{slot} ({time_range})", anchor=tk.CENTER
-            )
+            self.schedule_tree.heading(slot, text=f"{slot} ({time_range})", anchor=tk.CENTER)
             
-        # Apply tag configurations
         self.schedule_tree.tag_configure("oddrow", background=self.app.oddrow_bg)
         self.schedule_tree.tag_configure("evenrow", background=self.app.evenrow_bg)
         
-        # Get company data from scheduler
         schedule = self.scheduler.get_schedule()
-        companies = [c for c in self.scheduler.core.companies if (c.name, -1) not in schedule]
-
+        companies = self.scheduler.core.companies
+        
+        company_sessions = {}
+        if schedule: # Only group if schedule exists
+            for (company_id, slot_idx), session in schedule.items():
+                if company_id not in company_sessions:
+                    company_sessions[company_id] = {}
+                company_sessions[company_id][slot_idx] = session
+        
         for idx, company in enumerate(companies):
-            row = [company.name]
+            # Skip excluded companies (marked by a session with slot_idx -1)
+            if schedule and any((company.unique_id, -1) == key for key in schedule):
+                continue
+                
+            display_name = str(company)
+            row = [display_name]
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
                 if slot_idx < company.earliest_slot or slot_idx in company.blocked_slots:
-                    text = "---"
+                    text = "---" # Blocked or too early
                 else:
-                    session = schedule.get((company.name, slot_idx))
+                    session = schedule.get((company.unique_id, slot_idx)) if schedule else None
                     if session:
-                        count = len(session.students)
-                        capacity = session.company.capacity
-                        
-                        sessions_for_company = [s for (c, _), s in schedule.items() if c == company.name]
-                        
-                        if len(sessions_for_company) > 1:
-                            text = f"Raum {session.room}"
-                        else:
-                            text = f"Raum {session.room}"
+                        text = f"Raum {session.room}"
                     else:
-                        text = "---"
+                        text = "---" # No session scheduled
                 row.append(text)
+                
             self.schedule_tree.insert("", tk.END, values=row, tags=("evenrow" if idx % 2 == 0 else "oddrow"))
             
-    def export_schedule(self):
-        self.app.clear_error()
+    def export_schedule_pdf(self):
+        self.clear_error()
         if not self.scheduler.get_schedule():
-            self.app.show_error("Bitte erst den Zeitplan generieren!")
+            self.show_error("Bitte erst den Zeitplan generieren!")
             return
 
         try:
@@ -137,12 +146,10 @@ class ScheduleTab:
                 Paragraph,
             )
 
-            # Get file path from user
             filepath = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
             if not filepath:
                 return
 
-            # Create PDF
             doc = SimpleDocTemplate(
                 filepath,
                 pagesize=landscape(A4),
@@ -155,73 +162,35 @@ class ScheduleTab:
             story = []
             styles = getSampleStyleSheet()
 
-            # Add title
-            title_style = ParagraphStyle(
-                "CustomTitle", parent=styles["Heading1"], fontSize=16, spaceAfter=20
-            )
+            title_style = ParagraphStyle("CustomTitle", parent=styles["Heading1"], fontSize=16, spaceAfter=20)
             story.append(Paragraph("Zeitplan Übersicht", title_style))
 
-            # Prepare table data
             time_slots = self.scheduler.time_slots
-            headers = ["Unternehmen"] + [
-                f"{slot} ({time})" for slot, time in time_slots
-            ]
+            headers = ["Unternehmen"] + [f"{slot} ({time})" for slot, time in time_slots]
             table_data = [headers]
 
-            # Get all wish counts to determine total interest
-            all_wish_counts = {}
-            for student in self.scheduler.student_preferences:
-                for wish in student.wishes:
-                    if not wish:
-                        continue
-                    try:
-                        wish_num = int(float(str(wish).strip()))
-                        company_name = str(wish_num)
-                        for company in self.scheduler.companies:
-                            if str(wish_num) == str(company.name.strip()):
-                                company_name = company.name.strip()
-                                break
-                    except (ValueError, TypeError):
-                        company_name = str(wish).strip()
-                    all_wish_counts[company_name] = all_wish_counts.get(company_name, 0) + 1
+            schedule = self.scheduler.get_schedule()
+            companies = self.scheduler.core.companies
             
-            # Group sessions by company
-            company_sessions = {}
-            for (company_name, slot_idx), session in self.scheduler.schedule.items():
-                if company_name not in company_sessions:
-                    company_sessions[company_name] = []
-                company_sessions[company_name].append((slot_idx, session))
-            
-            for company in self.scheduler.companies:
-                row = [company.name]
-                company_name = company.name.strip()
-                total_interest = all_wish_counts.get(company_name, 0)
-                
+            for company in companies:
+                 # Skip excluded companies
+                if schedule and any((company.unique_id, -1) == key for key in schedule):
+                    continue
+
+                display_name = str(company)
+                row = [display_name]
                 for slot_idx, _ in enumerate(time_slots):
-                    if slot_idx < company.earliest_slot:
+                    if slot_idx < company.earliest_slot or slot_idx in company.blocked_slots:
                         text = "---"
                     else:
-                        session = self.scheduler.schedule.get((company.name, slot_idx))
+                        session = schedule.get((company.unique_id, slot_idx)) if schedule else None
                         if session:
-                            count = len(session.students)
-                            capacity = session.company.capacity
-                            
-                            # Check if this company has multiple sessions
-                            sessions_for_company = [s for (c, _), s in self.scheduler.schedule.items() if c == company.name]
-                            
-                            if len(sessions_for_company) > 1:
-                                # For companies with multiple sessions, show the actual count
-                                # We'll rely on the scheduler to distribute students evenly
-                                text = f"Raum {session.room}"
-                            else:
-                                # For companies with a single session, show the actual count
-                                text = f"Raum {session.room}"
+                            text = f"Raum {session.room}"
                         else:
                             text = "---"
                     row.append(text)
                 table_data.append(row)
 
-            # Style the table
             col_widths = [40 * mm] + [30 * mm] * len(time_slots)
             t = Table(table_data, colWidths=col_widths, repeatRows=1)
             t.setStyle(
@@ -249,8 +218,35 @@ class ScheduleTab:
 
             story.append(t)
             doc.build(story)
+            self.clear_error()
+            messagebox.showinfo("Export Erfolgreich", f"Zeitplan PDF exportiert nach {filepath}")
             
-            self.app.clear_error()
-
+        except ImportError:
+            self.show_error("Fehler beim PDF-Export: ReportLab nicht installiert.")
         except Exception as e:
-            self.app.show_error(f"Fehler beim Exportieren des Zeitplans: {str(e)}") 
+            self.show_error(f"Fehler beim PDF-Export des Zeitplans: {str(e)}")
+
+    def export_schedule_excel(self):
+        """Exports the main schedule grid view to an Excel file."""
+        self.clear_error()
+        if not self.scheduler.get_schedule():
+            self.show_error("Bitte erst den Zeitplan generieren!")
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".xlsx", 
+            filetypes=[("Excel files", "*.xlsx"), ("All Files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        try:
+            success = self.scheduler.export_schedule_excel(filepath)
+            if success:
+                self.clear_error()
+                messagebox.showinfo("Export Erfolgreich", f"Zeitplan exportiert nach {filepath}")
+            else:
+                self.show_error("Fehler beim Exportieren des Zeitplans nach Excel. Details siehe Popup.")
+            
+        except Exception as e:
+            self.show_error(f"Unerwarteter Fehler beim Excel-Export des Zeitplans: {str(e)}") 
