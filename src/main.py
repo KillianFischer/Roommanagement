@@ -50,7 +50,6 @@ class RoomManagementApp:
         self.main_frame.rowconfigure(0, weight=1) 
 
     def setup_styles(self):
-        """Set up ttk styles for the entire application"""
         style = ttk.Style()
         
         style.configure("Treeview", background="white", fieldbackground="white", foreground="black")
@@ -62,13 +61,8 @@ class RoomManagementApp:
         
         self.oddrow_bg = "#f2f2f2"
         self.evenrow_bg = "white"
-            
-    def is_dark_mode(self):
-        """Always return False to disable dark mode"""
-        return False
 
     def setup_preview_tree(self, tree, columns):
-        """Configure a treeview for previewing data"""
         tree["columns"] = columns
         tree["show"] = "headings"
 
@@ -80,7 +74,6 @@ class RoomManagementApp:
         tree.tag_configure("evenrow", background=self.evenrow_bg)
 
     def update_preview(self, tree, df, columns):
-        """Update a treeview with dataframe preview"""
         for item in tree.get_children():
             tree.delete(item)
         
@@ -101,7 +94,6 @@ class RoomManagementApp:
             )
 
     def _on_mousewheel(self, event, canvas):
-        """Handle mousewheel scrolling for canvas widgets"""
         canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
 

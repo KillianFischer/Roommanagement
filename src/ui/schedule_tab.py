@@ -52,11 +52,9 @@ class ScheduleTab:
         self.schedule_frame_inner.rowconfigure(0, weight=1)
         
     def show_error(self, message):
-        """Display an error message in the schedule tab's error label."""
         self.schedule_error_label.config(text=message)
 
     def clear_error(self):
-        """Clear the error message in the schedule tab's error label."""
         self.schedule_error_label.config(text="")
         
     def generate_schedule(self):
@@ -69,7 +67,6 @@ class ScheduleTab:
             self.update_schedule_display()
             self.clear_error()
         else:
-            # The scheduler service now handles showing detailed errors via messagebox
             self.show_error("Fehler bei der Erstellung des Zeitplans. Details siehe Popup.")
             
     def update_schedule_display(self):
@@ -225,7 +222,7 @@ class ScheduleTab:
             messagebox.showinfo("Export Erfolgreich", f"Zeitplan PDF exportiert nach {filepath}")
             
         except ImportError:
-            self.show_error("Fehler beim PDF-Export: ReportLab nicht installiert. Bitte installieren Sie es (pip install reportlab).")
+            self.show_error("Fehler beim PDF-Export: ReportLab nicht installiert.")
         except Exception as e:
             self.show_error(f"Fehler beim PDF-Export des Zeitplans: {str(e)}")
 

@@ -98,7 +98,7 @@ class ImportsTab:
         ).grid(row=1, column=0, pady=2, padx=(0, 10), sticky="w")
         self.companies_status = ttk.Label(
             section_frame,
-            text="No file imported",
+            text="Keine Datei importiert",
         )
         self.companies_status.grid(row=1, column=1, pady=2, sticky="w")
         self.companies_error_label = ttk.Label(section_frame, text="", foreground="red", wraplength=800)
@@ -133,7 +133,7 @@ class ImportsTab:
         ).grid(row=1, column=0, pady=2, padx=(0, 10), sticky="w")
         self.rooms_status = ttk.Label(
             section_frame,
-            text="No file imported",
+            text="Keine Datei importiert",
         )
         self.rooms_status.grid(row=1, column=1, pady=2, sticky="w")
         self.rooms_error_label = ttk.Label(section_frame, text="", foreground="red", wraplength=800)
@@ -179,7 +179,6 @@ class ImportsTab:
         )
 
     def show_error(self, section, message):
-        """Display an error message in the specified section's error label."""
         if section == "preferences":
             self.preferences_error_label.config(text=message)
         elif section == "companies":
@@ -188,7 +187,6 @@ class ImportsTab:
             self.rooms_error_label.config(text=message)
 
     def clear_error(self, section=None):
-        """Clear the error message in the specified section or all sections."""
         if section == "preferences" or section is None:
             self.preferences_error_label.config(text="")
         if section == "companies" or section is None:
@@ -207,7 +205,7 @@ class ImportsTab:
                 df.columns = df.columns.str.strip()
                 if self.scheduler.load_student_preferences(df):
                     self.preferences_status.config(
-                        text=f"Imported: {os.path.basename(file_path)}",
+                        text=f"Importiert: {os.path.basename(file_path)}",
                     )
                     cols = ["Klasse", "Name", "Vorname"] + [
                         f"Wahl {i}" for i in range(1, 7)
@@ -244,7 +242,7 @@ class ImportsTab:
 
                 if self.scheduler.load_companies(df):
                     self.companies_status.config(
-                        text=f"Imported: {os.path.basename(file_path)}",
+                        text=f"Importiert: {os.path.basename(file_path)}",
                     )
                     self.app.setup_preview_tree(self.companies_preview, required)
                     self.app.update_preview(self.companies_preview, df, required)
@@ -276,7 +274,7 @@ class ImportsTab:
                     df.columns = column_names
                 
                 if self.scheduler.load_rooms(df):
-                    self.rooms_status.config(text=f"Imported: {os.path.basename(file_path)}")
+                    self.rooms_status.config(text=f"Importiert: {os.path.basename(file_path)}")
                     preview_columns = ["Raum"]
                     if "Kapazität" in df.columns: preview_columns.append("Kapazität")
                     self.app.setup_preview_tree(self.rooms_preview, preview_columns)
@@ -292,7 +290,6 @@ class ImportsTab:
                 self.rooms_status.config(text=f"Error: {str(e)}", foreground="red")
                 
     def auto_import_files(self):
-        """Automatically import files in dev mode if they exist in the import folder"""
         self.clear_error()
         try:
             
@@ -312,7 +309,7 @@ class ImportsTab:
                     df.columns = column_names
 
                 if self.scheduler.load_rooms(df):
-                    self.rooms_status.config(text=f"Imported: {os.path.basename(rooms_file)}")
+                    self.rooms_status.config(text=f"Importiert: {os.path.basename(rooms_file)}")
                     preview_columns = ["Raum"]
                     if "Kapazität" in df.columns: preview_columns.append("Kapazität")
                     self.app.setup_preview_tree(self.rooms_preview, preview_columns)
@@ -331,7 +328,7 @@ class ImportsTab:
                     df = df.rename(columns={"Min. Teilnehmer": "Max. Veranstaltungen"})
                 required = ["Unternehmen", "Max. Teilnehmer", "Max. Veranstaltungen", "Frühester Zeitpunkt"]
                 if self.scheduler.load_companies(df):
-                    self.companies_status.config(text=f"Imported: {os.path.basename(companies_file)}")
+                    self.companies_status.config(text=f"Importiert: {os.path.basename(companies_file)}")
                     self.app.setup_preview_tree(self.companies_preview, required)
                     self.app.update_preview(self.companies_preview, df, required)
                 else:
@@ -343,7 +340,7 @@ class ImportsTab:
                 df = pd.read_excel(preferences_file)
                 df.columns = df.columns.str.strip()
                 if self.scheduler.load_student_preferences(df):
-                    self.preferences_status.config(text=f"Imported: {os.path.basename(preferences_file)}")
+                    self.preferences_status.config(text=f"Importiert: {os.path.basename(preferences_file)}")
                     cols = ["Klasse", "Name", "Vorname"] + [f"Wahl {i}" for i in range(1, 7)]
                     self.app.setup_preview_tree(self.preferences_preview, cols)
                     self.app.update_preview(self.preferences_preview, df, cols)

@@ -83,7 +83,6 @@ class SchedulerCore:
             else:
                 self.room_capacities[room_name] = 20  # Default capacity if not specified
         
-        logger.info(f"Loaded {len(self.rooms)} rooms with capacities: {self.room_capacities}")
         return True
 
     def is_data_loaded(self) -> bool:
@@ -144,7 +143,7 @@ class SchedulerCore:
             
             is_valid = self.debug_room_assignments()
             if not is_valid:
-                logger.warning("Schedule validation found issues.")
+                logger.warning("Raumplanung hat Fehler.")
                              
             return True
         except Exception as e:
@@ -220,63 +219,62 @@ class SchedulerCore:
                 company.always_show_field = True
                 
     def _assign_companies_to_rooms(self, companies, wish_counts):
-        logger.info("Assigning companies to rooms")
         
         sorted_rooms = sorted(self.rooms, key=lambda r: self.room_capacities.get(r, 0), reverse=True)
         
         raum_entries = [r for r in sorted_rooms if r.lower() == "raum"]
         if raum_entries:
-            logger.warning(f"Found {len(raum_entries)} 'Raum' entries in the room list. These may cause problems: {raum_entries}")
+            logger.warning(f"Found {len(raum_entries)} 'Raum' hat diese Fehler: {raum_entries}")
         
         filtered_rooms = [r for r in sorted_rooms if r.lower() != "raum"]
         if len(filtered_rooms) != len(sorted_rooms):
-            logger.info(f"Filtered out {len(sorted_rooms) - len(filtered_rooms)} 'Raum' entries from room list")
+            logger.info(f"Filtered out {len(sorted_rooms) - len(filtered_rooms)} 'Raum' Listen")
             sorted_rooms = filtered_rooms
         
         company_session_count = {company.unique_id: 0 for company in companies}
         
         finanzamt_companies = [c for c in companies if "finanzamt" in c.name.lower()]
         if finanzamt_companies:
-            logger.info(f"Found Finanzamt companies: {[c.name for c in finanzamt_companies]}")
+            logger.info(f"Finanzamt: {[c.name for c in finanzamt_companies]}")
             
             for finanzamt in finanzamt_companies:
                 if not hasattr(finanzamt, 'fixed_room') or not finanzamt.fixed_room:
                     finanzamt_rooms = [r for r in sorted_rooms if any(term in r.lower() for term in ["finanz", "steuer", "amt"])]
                     if finanzamt_rooms:
                         finanzamt.fixed_room = finanzamt_rooms[0]
-                        logger.info(f"Set fixed room for {finanzamt.name} to {finanzamt.fixed_room}")
+                        logger.info(f"Fester raum für {finanzamt.name} zu {finanzamt.fixed_room}")
         
         for company in companies:
             wish_count = wish_counts.get(company.name.strip(), 0)
             logger.info(f"Assigning {company.name} (popularity: {wish_count}, max_sessions: {company.max_sessions}) to rooms")
             
             if wish_count == 0:
-                logger.debug(f"Skipping {company.name} - no student interest")
+                logger.debug(f"Überspringe {company.name} - keine Schülerwünsche")
                 continue
                 
             expected_students = min(wish_count, company.capacity)
             
             suitable_rooms = [r for r in sorted_rooms if self.room_capacities.get(r, 0) >= expected_students]
             if not suitable_rooms:
-                logger.warning(f"No room with sufficient capacity for {company.name} ({expected_students} students)")
+                logger.warning(f"Keine Räume mit Kapazität für {company.name} ({expected_students} Studenten)")
                 suitable_rooms = sorted_rooms
             
-            logger.info(f"Suitable rooms for {company.name}: {suitable_rooms}")
+            logger.info(f"Passende Räume für {company.name}: {suitable_rooms}")
             
             fixed_room = None
             
             if hasattr(company, 'fixed_room') and company.fixed_room:
                 if company.fixed_room in sorted_rooms:
                     fixed_room = company.fixed_room
-                    logger.info(f"Using company's fixed room: {fixed_room} for {company.name}")
+                    logger.info(f"Fester Raum: {fixed_room} für {company.name}")
                 else:
-                    logger.warning(f"Company {company.name} has fixed room {company.fixed_room} but it's not available")
+                    logger.warning(f"Company {company.name} hat festen Raum {company.fixed_room} aber ist nicht verfügbar")
             
             if not fixed_room and "finanzamt" in company.name.lower():
                 logger.info(f"Special handling for Finanzamt company: {company.name}")
                 
                 finanzamt_rooms = [r for r in suitable_rooms if any(term in r.lower() for term in ["finanz", "steuer", "amt"])]
-                logger.info(f"Potential Finanzamt rooms: {finanzamt_rooms}")
+                logger.info(f"Potenzielle Finanzraum Räume: {finanzamt_rooms}")
                 
                 if finanzamt_rooms:
                     fixed_room = finanzamt_rooms[0]
@@ -309,7 +307,7 @@ class SchedulerCore:
                 
                 if fixed_room and self._room_usage.get(fixed_room, {}).get(slot_idx) is None:
                     assigned_room = fixed_room
-                    logger.info(f"Using fixed room {fixed_room} for {company.name} in slot {slot_letter}")
+                    logger.info(f"Fester Raum {fixed_room} für {company.name} in {slot_letter}")
                 else:
                     assigned_room = None
                     for room in suitable_rooms:
