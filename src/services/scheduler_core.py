@@ -3,6 +3,7 @@ from tkinter import messagebox
 import pandas as pd
 import logging
 
+from ortools.sat.python import cp_model
 from models.student import StudentPreference
 from models.company import Company, CompanySession
 
@@ -37,7 +38,7 @@ class SchedulerCore:
 
         df.columns = df.columns.str.strip()
         self.student_preferences = StudentPreference.from_dataframe(df, company_mapping)
-        logger.info(f"Loaded {len(self.student_preferences)} student preferences")
+        
         return True
 
     def load_companies(self, df: pd.DataFrame) -> bool:
@@ -45,7 +46,7 @@ class SchedulerCore:
             return False
         df.columns = df.columns.str.strip()
         self.companies = Company.from_dataframe(df)
-        logger.info(f"Loaded {len(self.companies)} companies")
+        
         return True
 
     def load_rooms(self, df: pd.DataFrame) -> bool:
@@ -68,7 +69,7 @@ class SchedulerCore:
             room_name = str(row[room_col]).strip()
             
             if not room_name or room_name.lower() in excluded_values:
-                logger.info(f"Skipping room entry: '{room_name}' (likely a header or empty value)")
+                
                 continue
             
             self.rooms.append(room_name)
@@ -78,7 +79,7 @@ class SchedulerCore:
                     capacity = int(row[capacity_col])
                     self.room_capacities[room_name] = capacity
                 except (ValueError, TypeError):
-                    logger.warning(f"Invalid capacity value for room {room_name}: {row[capacity_col]}")
+                    
                     self.room_capacities[room_name] = 20  # Default capacity
             else:
                 self.room_capacities[room_name] = 20  # Default capacity if not specified
@@ -103,47 +104,20 @@ class SchedulerCore:
             
             filtered_companies, excluded_companies = self._filter_companies_by_interest(all_wish_counts)
             
-            sorted_companies = sorted(
-                filtered_companies,
-                key=lambda x: first_wish_counts.get(x.name.strip(), 0),
-                reverse=True,
-            )
-            
-            polizei_company = self._identify_polizei_company(sorted_companies)
-            if polizei_company and polizei_company in sorted_companies:
-                sorted_companies.remove(polizei_company)
-            
-            self._mark_duplicate_companies(sorted_companies)
-            
-            if "Aula" in self.rooms and polizei_company:
-                for slot_idx in range(len(self.time_slots)):
-                    self._room_usage["Aula"][slot_idx] = polizei_company.unique_id  # Use unique ID
-                
-                for slot_idx, (slot_letter, time_range) in enumerate(self.time_slots):
-                    session = CompanySession(
-                        company=polizei_company,
-                        room="Aula",
-                        time_slot=slot_letter,
-                        time_range=time_range,
-                    )
-                    self.schedule[(polizei_company.unique_id, slot_idx)] = session
-            
-            self._assign_companies_to_rooms(sorted_companies, all_wish_counts)
-            
+            cp_sat_success = self._generate_schedule_cp_sat(filtered_companies, number_to_company)
+
+            if not cp_sat_success:
+                 messagebox.showerror("Fehler bei Zeitplanerstellung", "CP-SAT Solver konnte keine gültige Lösung finden.")
+                 self.schedule.clear()
+                 return False
+
             self._handle_excluded_companies(excluded_companies)
-            
-            company_sessions = self._prepare_company_sessions()
-            number_to_company = self._create_number_to_company_map()
-            self._assign_students_to_sessions(company_sessions, number_to_company)
             
             self._calculate_student_fulfillment_scores(number_to_company)
             
-            self.schedule = {k: v for k, v in self.schedule.items() 
-                             if len(v.students) > 0 or k[1] == -1}  # Keep excluded companies
-            
             is_valid = self.debug_room_assignments()
             if not is_valid:
-                logger.warning("Raumplanung hat Fehler.")
+                pass
                              
             return True
         except Exception as e:
@@ -224,70 +198,70 @@ class SchedulerCore:
         
         raum_entries = [r for r in sorted_rooms if r.lower() == "raum"]
         if raum_entries:
-            logger.warning(f"Found {len(raum_entries)} 'Raum' hat diese Fehler: {raum_entries}")
+            pass
         
         filtered_rooms = [r for r in sorted_rooms if r.lower() != "raum"]
         if len(filtered_rooms) != len(sorted_rooms):
-            logger.info(f"Filtered out {len(sorted_rooms) - len(filtered_rooms)} 'Raum' Listen")
+            
             sorted_rooms = filtered_rooms
         
         company_session_count = {company.unique_id: 0 for company in companies}
         
         finanzamt_companies = [c for c in companies if "finanzamt" in c.name.lower()]
         if finanzamt_companies:
-            logger.info(f"Finanzamt: {[c.name for c in finanzamt_companies]}")
+            
             
             for finanzamt in finanzamt_companies:
                 if not hasattr(finanzamt, 'fixed_room') or not finanzamt.fixed_room:
                     finanzamt_rooms = [r for r in sorted_rooms if any(term in r.lower() for term in ["finanz", "steuer", "amt"])]
                     if finanzamt_rooms:
                         finanzamt.fixed_room = finanzamt_rooms[0]
-                        logger.info(f"Fester raum für {finanzamt.name} zu {finanzamt.fixed_room}")
+                        
         
         for company in companies:
             wish_count = wish_counts.get(company.name.strip(), 0)
-            logger.info(f"Assigning {company.name} (popularity: {wish_count}, max_sessions: {company.max_sessions}) to rooms")
+            
             
             if wish_count == 0:
-                logger.debug(f"Überspringe {company.name} - keine Schülerwünsche")
+                
                 continue
                 
             expected_students = min(wish_count, company.capacity)
             
             suitable_rooms = [r for r in sorted_rooms if self.room_capacities.get(r, 0) >= expected_students]
             if not suitable_rooms:
-                logger.warning(f"Keine Räume mit Kapazität für {company.name} ({expected_students} Studenten)")
+                
                 suitable_rooms = sorted_rooms
             
-            logger.info(f"Passende Räume für {company.name}: {suitable_rooms}")
+            
             
             fixed_room = None
             
             if hasattr(company, 'fixed_room') and company.fixed_room:
                 if company.fixed_room in sorted_rooms:
                     fixed_room = company.fixed_room
-                    logger.info(f"Fester Raum: {fixed_room} für {company.name}")
+                    
                 else:
-                    logger.warning(f"Company {company.name} hat festen Raum {company.fixed_room} aber ist nicht verfügbar")
+                    pass
             
             if not fixed_room and "finanzamt" in company.name.lower():
-                logger.info(f"Special handling for Finanzamt company: {company.name}")
+                
                 
                 finanzamt_rooms = [r for r in suitable_rooms if any(term in r.lower() for term in ["finanz", "steuer", "amt"])]
-                logger.info(f"Potenzielle Finanzraum Räume: {finanzamt_rooms}")
+                
                 
                 if finanzamt_rooms:
                     fixed_room = finanzamt_rooms[0]
-                    logger.info(f"Found dedicated Finanzamt room: {fixed_room}")
+                    
                     company.fixed_room = fixed_room
                 else:
                     non_raum_rooms = [r for r in suitable_rooms if r.lower() != "raum"]
                     if non_raum_rooms:
                         fixed_room = non_raum_rooms[0]
-                        logger.info(f"No dedicated Finanzamt room found, using: {fixed_room}")
+                        
                         company.fixed_room = fixed_room
                     else:
-                        logger.warning(f"No suitable room found for Finanzamt, using any available room")
+                        
                         if suitable_rooms:
                             fixed_room = suitable_rooms[0]
                             company.fixed_room = fixed_room
@@ -296,18 +270,18 @@ class SchedulerCore:
             
             for slot_idx in range(company.earliest_slot, len(self.time_slots)):
                 if sessions_assigned >= company.max_sessions:
-                    logger.info(f"Reached max sessions ({company.max_sessions}) for {company.name}, not assigning more slots")
+                    
                     break
                 
                 if hasattr(company, 'blocked_slots') and slot_idx in company.blocked_slots:
-                    logger.info(f"Skipping slot {slot_idx} for {company.name} as it's in blocked slots")
+                    
                     continue
                 
                 slot_letter, time_range = self.time_slots[slot_idx]
                 
                 if fixed_room and self._room_usage.get(fixed_room, {}).get(slot_idx) is None:
                     assigned_room = fixed_room
-                    logger.info(f"Fester Raum {fixed_room} für {company.name} in {slot_letter}")
+                    
                 else:
                     assigned_room = None
                     for room in suitable_rooms:
@@ -332,21 +306,21 @@ class SchedulerCore:
                     company_session_count[company.unique_id] += 1
                     
                     if "finanzamt" in company.name.lower():
-                        logger.info(f"*** FINANZAMT ASSIGNMENT: {company.name} assigned to room {assigned_room} for slot {slot_letter} ***")
+                        pass
                     else:
-                        logger.info(f"Assigned {company.name} to room {assigned_room} for slot {slot_letter} ({sessions_assigned}/{company.max_sessions})")
+                        pass
                 else:
-                    logger.warning(f"Could not find available room for {company.name} in slot {slot_letter}")
+                    pass
                     
         for company in companies:
-            logger.info(f"Assigned {company_session_count[company.unique_id]}/{company.max_sessions} sessions to {company.name}")
+            pass
             
-        logger.info(f"Assigned {len(self.schedule)} sessions in total")
+            
         
     def _prepare_company_sessions(self):
         company_sessions = {}
         for (company_id, slot_idx), session in self.schedule.items():
-            if slot_idx == -1:  # Skip excluded companies
+            if slot_idx == -1:  
                 continue
             if company_id not in company_sessions:
                 company_sessions[company_id] = []
@@ -366,7 +340,7 @@ class SchedulerCore:
             company_id_map[company.unique_id] = company.unique_id
         
         company_wish_lists = {}
-        student_wish_map = {}  # Map from student_id to their wishes as company_ids
+        student_wish_map = {}  
         
         for student in self.student_preferences:
             student_wish_map[student.student_id] = []
@@ -397,8 +371,8 @@ class SchedulerCore:
                 
                 company_wish_lists[company_id].append({
                     'student': student,
-                    'wish_number': wish_idx + 1,  # 1-indexed
-                    'priority': wish_idx,  # Lower is higher priority
+                    'wish_number': wish_idx + 1,  
+                    'priority': wish_idx,  
                 })
                 
                 student_wish_map[student.student_id].append((company_id, wish_idx + 1))
@@ -485,7 +459,7 @@ class SchedulerCore:
                         break
                 
                 if not assigned:
-                    logger.info(f"Need to create a new session for student {student.student_id} in first slot")
+                    pass
                     
                     if student.student_id in student_wish_map:
                         for company_id, wish_number in student_wish_map[student.student_id]:
@@ -496,10 +470,10 @@ class SchedulerCore:
                                     break
                                     
                             if not company or company.earliest_slot > first_slot_idx:
-                                continue  # Skip if company can't be scheduled in first slot
+                                continue  
                                 
                             for room in self.rooms:
-                                if room == "Aula":  # Skip Aula
+                                if room == "Aula":  
                                     continue
                                     
                                 if self._room_usage[room][first_slot_idx] is None:
@@ -535,10 +509,10 @@ class SchedulerCore:
                     if not assigned:
                         for company in self.companies:
                             if company.earliest_slot > first_slot_idx:
-                                continue  # Company can't be scheduled in first slot
+                                continue  
                                 
                             for room in self.rooms:
-                                if room == "Aula":  # Skip Aula
+                                if room == "Aula":  
                                     continue
                                     
                                 if self._room_usage[room][first_slot_idx] is None:
@@ -553,7 +527,7 @@ class SchedulerCore:
                                     )
                                     
                                     new_session.add_student(student.student_id, student.name)
-                                    new_session.students[-1]["wish_number"] = "-"  # Not a wish
+                                    new_session.students[-1]["wish_number"] = "-"  
                                     
                                     self.schedule[(company.unique_id, first_slot_idx)] = new_session
                                     
@@ -627,7 +601,7 @@ class SchedulerCore:
                     session = available_sessions[0][0]
                     
                     session.add_student(student.student_id, student.name)
-                    session.students[-1]["wish_number"] = "-"  # Not a wish
+                    session.students[-1]["wish_number"] = "-"  
                     
                     assigned_slots.add(slot_idx)
                 else:
@@ -646,7 +620,7 @@ class SchedulerCore:
                             continue
                             
                         for room in self.rooms:
-                            if room == "Aula":  # Skip Aula
+                            if room == "Aula":  
                                 continue
                                 
                             if self._room_usage[room][slot_idx] is None:
@@ -661,7 +635,7 @@ class SchedulerCore:
                                 )
                                 
                                 session.add_student(student.student_id, student.name)
-                                session.students[-1]["wish_number"] = "-"  # Not a wish
+                                session.students[-1]["wish_number"] = "-"  
                                 
                                 self.schedule[(company.unique_id, slot_idx)] = session
                                 
@@ -678,7 +652,7 @@ class SchedulerCore:
     def _calculate_student_fulfillment_scores(self, number_to_company):
         
         wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
-        max_score_per_student = 21  # Maximum possible score per student (sum of all weights)
+        max_score_per_student = 21  
         
         company_id_to_name = {}
         for company in self.companies:
@@ -689,7 +663,7 @@ class SchedulerCore:
         student_wish_fulfillment = {}
         
         for (company_id, slot_idx), session in self.schedule.items():
-            if slot_idx == -1:  # Skip excluded sessions
+            if slot_idx == -1:  
                 continue
                 
             for student in session.students:
@@ -744,13 +718,13 @@ class SchedulerCore:
                         if wish_number not in fulfilled_wishes:
                             fulfilled_wishes.add(wish_number)
                             student_score += wish_weights.get(wish_number, 0)
-                            logger.debug(f"Student {student_id} got wish {wish_number} for {company_name}")
+                            
                         
                         student_wish_fulfillment[student_id][slot_idx] = wish_number
                         break
                 
                 if not wish_fulfilled:
-                    logger.debug(f"Student {student_id} didn't have {company_name} in wishes for slot {slot_idx}")
+                    
                     student_wish_fulfillment[student_id][slot_idx] = None
             
             student_scores[student_id] = student_score
@@ -758,11 +732,12 @@ class SchedulerCore:
         
         total_possible_score = students_with_wishes * max_score_per_student
         fulfillment_percentage = (total_score / total_possible_score * 100) if total_possible_score > 0 else 0
-        logger.info(f"Overall fulfillment score: {fulfillment_percentage:.2f}% ({total_score}/{total_possible_score})")
-        logger.info(f"Students with wishes: {students_with_wishes}")
+        
+        
+        
         
         for (company_id, slot_idx), session in self.schedule.items():
-            if slot_idx == -1:  # Skip excluded sessions
+            if slot_idx == -1:  
                 continue
                 
             for i, student in enumerate(session.students):
@@ -776,10 +751,10 @@ class SchedulerCore:
         if not self.schedule:
             return 0.0
             
-        logger.info("Calculating overall fulfillment score")
+        
         
         wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
-        max_score_per_student = 21  # Maximum possible score per student
+        max_score_per_student = 21  
         
         company_name_to_id = {}
         for company in self.companies:
@@ -819,10 +794,10 @@ class SchedulerCore:
                     wish_str = str(wish).strip()
                 
                 if wish_str in company_name_to_id:
-                    wishes_by_company[company_name_to_id[wish_str]] = wish_idx + 1  # 1-indexed
+                    wishes_by_company[company_name_to_id[wish_str]] = wish_idx + 1  
             
             for (company_id, slot_idx), session in self.schedule.items():
-                if slot_idx == -1:  # Skip excluded companies
+                if slot_idx == -1:  
                     continue
                     
                 if not any(s["id"] == student_id for s in session.students):
@@ -834,7 +809,7 @@ class SchedulerCore:
                     if wish_number not in student_fulfilled_wishes[student_id]:
                         student_fulfilled_wishes[student_id].add(wish_number)
                         wish_counts[wish_number] = wish_counts.get(wish_number, 0) + 1
-                        logger.debug(f"Student {student_id} got wish {wish_number} for company {session.company.name}")
+                        
             
             student_score = sum(wish_weights.get(wish, 0) for wish in student_fulfilled_wishes[student_id])
             total_score += student_score
@@ -845,14 +820,14 @@ class SchedulerCore:
         if max_possible_score > 0:
             fulfillment_percentage = (total_score / max_possible_score) * 100
             
-        # CLI for debugging during development    
-        logger.info(f"Fulfillment score statistics:")
-        logger.info(f"- Students with wishes: {students_with_wishes}")
-        logger.info(f"- Students with at least one fulfilled wish: {len(student_fulfilled_wishes)}")
-        logger.info(f"- Total actual score: {total_score}")
-        logger.info(f"- Maximum possible score: {max_possible_score}")
-        logger.info(f"- Fulfillment percentage: {fulfillment_percentage:.2f}%")
-        logger.info(f"- Wish distribution: {wish_counts}")
+            
+        
+        
+        
+        
+        
+        
+        
         
         return fulfillment_percentage
 
@@ -877,8 +852,8 @@ class SchedulerCore:
             self.schedule[(company.unique_id, -1)] = session
 
     def debug_room_assignments(self) -> bool:
-        """Validate the generated schedule and check for conflicts"""
-        logger.info("Validating the generated schedule")
+        
+        
         
         valid = True
         room_schedule = {}
@@ -886,7 +861,7 @@ class SchedulerCore:
         company_schedule = {}
         
         for (company_id, slot_idx), session in self.schedule.items():
-            if slot_idx == -1:  # Skip excluded companies
+            if slot_idx == -1:  
                 continue
                 
             room = session.room
@@ -897,7 +872,7 @@ class SchedulerCore:
             
             if time_slot in room_schedule[room]:
                 existing_company = room_schedule[room][time_slot]
-                logger.error(f"CONFLICT: Room {room} double-booked for slot {time_slot}: {existing_company} and {company_id}")
+                
                 valid = False
             else:
                 room_schedule[room][time_slot] = company_id
@@ -907,7 +882,7 @@ class SchedulerCore:
                 
             if time_slot in company_schedule[company_id]:
                 existing_room = company_schedule[company_id][time_slot]
-                logger.error(f"CONFLICT: Company {company_id} scheduled in multiple rooms for slot {time_slot}: {existing_room} and {room}")
+                
                 valid = False
             else:
                 company_schedule[company_id][time_slot] = room
@@ -920,13 +895,13 @@ class SchedulerCore:
                 
                 if time_slot in student_schedule[student_id]:
                     existing_company = student_schedule[student_id][time_slot]
-                    logger.error(f"CONFLICT: Student {student_id} double-booked for slot {time_slot}: {existing_company} and {company_id}")
+                    
                     valid = False
                 else:
                     student_schedule[student_id][time_slot] = company_id
         
         for (company_id, slot_idx), session in self.schedule.items():
-            if slot_idx == -1:  # Skip excluded companies
+            if slot_idx == -1:  
                 continue
                 
             room = session.room
@@ -935,40 +910,41 @@ class SchedulerCore:
             
             room_capacity = self.room_capacities.get(room, 30)
             if student_count > room_capacity:
-                logger.warning(f"Capacity exceeded: Room {room} (capacity {room_capacity}) has {student_count} students for {company.name}")
+                
                 valid = False
             
             if student_count > company.capacity:
-                logger.warning(f"Company capacity exceeded: {company.name} (capacity {company.capacity}) has {student_count} students")
+                
                 valid = False
         
-        logger.info("Room assignments summary:")
+        
         for room, slots in room_schedule.items():
             room_capacity = self.room_capacities.get(room, "unknown")
             slot_info = ", ".join([f"{self.time_slots[slot][0]}: {company}" for slot, company in sorted(slots.items())])
-            logger.info(f"Room {room} (capacity: {room_capacity}): {slot_info}")
+            
             
         total_student_slots = sum(len(slots) for slots in student_schedule.values())
         total_company_slots = sum(len(slots) for slots in company_schedule.values())
         
-        # CLI for debugging during development
-        logger.info(f"Schedule statistics:")
-        logger.info(f"- Total rooms used: {len(room_schedule)}")
-        logger.info(f"- Total companies scheduled: {len(company_schedule)}")
-        logger.info(f"- Total students scheduled: {len(student_schedule)}")
-        logger.info(f"- Total student slots filled: {total_student_slots}")
-        logger.info(f"- Total company slots: {total_company_slots}")
-        logger.info(f"- Average students per session: {total_student_slots / total_company_slots if total_company_slots else 0:.2f}")
+        
+        
+        
+        
+        
+        
+        
+        
+        
         
         if valid:
-            logger.info("Schedule validation PASSED - No conflicts found")
+            pass
         else:
-            logger.error("Schedule validation FAILED - See errors above")
+            pass
         
         return valid 
 
     def _get_company_id_from_wish(self, wish):
-        """Helper method to get company ID from a student wish"""
+        
         if not wish:
             return None
             
@@ -990,3 +966,317 @@ class SchedulerCore:
                     return company.unique_id
                     
         return None 
+
+    def _generate_schedule_cp_sat(self, companies_to_schedule: List[Company], number_to_company: Dict) -> bool:
+        
+        
+        
+        model = cp_model.CpModel()
+
+        
+        students = self.student_preferences
+        rooms = self.rooms
+        all_companies = self.companies
+        
+        student_ids = [s.student_id for s in students]
+        company_ids = [c.unique_id for c in companies_to_schedule]
+        room_ids = list(range(len(rooms)))
+        time_slot_indices = list(range(len(self.time_slots)))
+
+        student_map = {s_id: i for i, s_id in enumerate(student_ids)}
+        company_map = {c_id: i for i, c_id in enumerate(company_ids)}
+        room_map = {r_name: i for i, r_name in enumerate(rooms)}
+
+        company_obj_map = {c.unique_id: c for c in companies_to_schedule}
+        room_capacities_idx = {room_map[r_name]: cap for r_name, cap in self.room_capacities.items() if r_name in room_map}
+        company_capacities_idx = {company_map[c.unique_id]: c.capacity for c in companies_to_schedule}
+        company_max_sessions_idx = {company_map[c.unique_id]: c.max_sessions for c in companies_to_schedule}
+        company_earliest_slot_idx = {company_map[c.unique_id]: c.earliest_slot for c in companies_to_schedule}
+        
+        num_students = len(students)
+        num_companies = len(companies_to_schedule)
+        num_rooms = len(rooms)
+        num_slots = len(self.time_slots)
+
+        wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
+
+        
+        assignment = {}
+        for s_idx in range(num_students):
+            assignment[s_idx] = {}
+            for t_idx in time_slot_indices:
+                assignment[s_idx][t_idx] = {}
+                for c_idx in range(num_companies):
+                    assignment[s_idx][t_idx][c_idx] = model.new_bool_var(f"assign_s{s_idx}_t{t_idx}_c{c_idx}")
+
+        session_room = {}
+        for c_idx in range(num_companies):
+            session_room[c_idx] = {}
+            for t_idx in time_slot_indices:
+                session_room[c_idx][t_idx] = {}
+                for r_idx in room_ids:
+                    session_room[c_idx][t_idx][r_idx] = model.new_bool_var(f"session_c{c_idx}_t{t_idx}_r{r_idx}")
+
+        company_uses_room = {}
+        for c_idx in range(num_companies):
+            company_uses_room[c_idx] = {}
+            for r_idx in room_ids:
+                 company_uses_room[c_idx][r_idx] = model.new_bool_var(f"c_uses_r_c{c_idx}_r{r_idx}")
+
+        company_active_in_slot = {}
+        for c_idx in range(num_companies):
+            company_active_in_slot[c_idx] = {}
+            for t_idx in time_slot_indices:
+                company_active_in_slot[c_idx][t_idx] = model.new_bool_var(f"active_c{c_idx}_t{t_idx}")
+
+        fulfilled_wish = {}
+        student_wish_company_idx = {}
+
+        
+        
+        
+        
+        for s_idx in range(num_students):
+            for t_idx in time_slot_indices:
+                model.add_exactly_one(assignment[s_idx][t_idx][c_idx] for c_idx in range(num_companies))
+        
+
+        
+        for r_idx in room_ids:
+            for t_idx in time_slot_indices:
+                model.add_at_most_one(session_room[c_idx][t_idx][r_idx] for c_idx in range(num_companies))
+        
+        
+        for s_idx in range(num_students):
+            for t_idx in time_slot_indices:
+                for c_idx in range(num_companies):
+                    model.add(assignment[s_idx][t_idx][c_idx] <= sum(session_room[c_idx][t_idx][r_idx] for r_idx in room_ids))
+        
+
+        
+        for c_idx in range(num_companies):
+            
+            for r_idx in room_ids:
+                 for t_idx in time_slot_indices:
+                      model.add_implication(session_room[c_idx][t_idx][r_idx], company_uses_room[c_idx][r_idx])
+            
+            model.add_at_most_one(company_uses_room[c_idx][r_idx] for r_idx in room_ids)
+            
+            for t_idx in time_slot_indices:
+                 for r_idx in room_ids:
+                      model.add_implication(session_room[c_idx][t_idx][r_idx], company_uses_room[c_idx][r_idx])
+        
+
+        
+        for c_idx in range(num_companies):
+            for t_idx in time_slot_indices:
+                for r_idx in room_ids:
+                    if r_idx in room_capacities_idx:
+                        room_cap = room_capacities_idx[r_idx]
+                        students_in_session = model.new_int_var(0, num_students, f"students_c{c_idx}_t{t_idx}_r{r_idx}") 
+                        model.add(students_in_session == sum(assignment[s_idx][t_idx][c_idx] for s_idx in range(num_students)))
+                        model.add(students_in_session <= room_cap).OnlyEnforceIf(session_room[c_idx][t_idx][r_idx])
+                    else:
+                         pass
+        
+
+        
+        for c_idx in range(num_companies):
+            company_cap = company_capacities_idx[c_idx]
+            for t_idx in time_slot_indices:
+                model.add(sum(assignment[s_idx][t_idx][c_idx] for s_idx in range(num_students)) <= company_cap)
+        
+
+        
+        for c_idx in range(num_companies):
+            max_sessions = company_max_sessions_idx[c_idx]
+            for t_idx in time_slot_indices:
+                model.add_bool_or(session_room[c_idx][t_idx][r_idx] for r_idx in room_ids).OnlyEnforceIf(company_active_in_slot[c_idx][t_idx])
+                model.add(company_active_in_slot[c_idx][t_idx] <= sum(session_room[c_idx][t_idx][r_idx] for r_idx in room_ids))
+            model.add(sum(company_active_in_slot[c_idx][t_idx] for t_idx in time_slot_indices) <= max_sessions)
+        
+
+        
+        for c_idx in range(num_companies):
+            earliest_slot = company_earliest_slot_idx[c_idx]
+            for t_idx in range(earliest_slot):
+                 for r_idx in room_ids:
+                     model.add(session_room[c_idx][t_idx][r_idx] == 0)
+        
+
+        
+        for s_idx, student in enumerate(students):
+            student_wish_company_idx[s_idx] = {}
+            for wish_rank, wish in enumerate(student.wishes, 1):
+                company_id = self._get_company_id_from_wish(wish)
+                if company_id and company_id in company_map:
+                    c_idx = company_map[company_id]
+                    student_wish_company_idx[s_idx][wish_rank] = c_idx
+
+        
+        for s_idx in range(num_students):
+            fulfilled_wish[s_idx] = {}
+            for wish_rank, c_idx in student_wish_company_idx[s_idx].items():
+                fulfilled_wish[s_idx][wish_rank] = model.new_bool_var(f"fulfilled_s{s_idx}_w{wish_rank}")
+                model.add(fulfilled_wish[s_idx][wish_rank] <= sum(assignment[s_idx][t_idx][c_idx] for t_idx in time_slot_indices))
+                for t_idx in time_slot_indices:
+                     model.add_implication(assignment[s_idx][t_idx][c_idx], fulfilled_wish[s_idx][wish_rank])
+
+        
+        polizei_company = self._identify_polizei_company(companies_to_schedule)
+        if polizei_company and "Aula" in rooms:
+            polizei_c_id = polizei_company.unique_id
+            if polizei_c_id in company_map:
+                 polizei_c_idx = company_map[polizei_c_id]
+                 aula_r_idx = room_map["Aula"]
+                 model.add(company_uses_room[polizei_c_idx][aula_r_idx] == 1)
+                 
+            else:
+                 pass
+        elif polizei_company:
+            pass
+        
+        objective_terms = [] 
+        first_wishes_prioritized = 0
+        bonus_weight = num_students * 10 
+
+        
+        for s_idx in range(num_students):
+            if 1 in student_wish_company_idx[s_idx]:
+                 
+                 if 1 in fulfilled_wish[s_idx]:
+                      objective_terms.append(fulfilled_wish[s_idx][1] * bonus_weight)
+                      first_wishes_prioritized += 1
+                 else:
+                     
+                     pass
+                     
+        if first_wishes_prioritized > 0:
+             pass
+        else:
+             pass
+
+        
+         
+        
+        for s_idx in range(num_students):
+            for wish_rank, c_idx in student_wish_company_idx[s_idx].items():
+                if wish_rank in fulfilled_wish[s_idx]:
+                     objective_terms.append(fulfilled_wish[s_idx][wish_rank] * wish_weights.get(wish_rank, 0))
+        
+        model.maximize(sum(objective_terms))
+        
+
+        
+        
+        solver = cp_model.CpSolver()
+        solver.parameters.random_seed = 0 
+        solver.parameters.max_time_in_seconds = 300.0 
+        solver.parameters.log_search_progress = True 
+        
+        status = solver.solve(model)
+        
+
+        
+        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+            
+            
+             
+            
+            self.schedule.clear() 
+            
+            
+            for c_idx in range(num_companies):
+                company = company_obj_map[company_ids[c_idx]]
+                assigned_room_idx = -1
+                assigned_room_name = None
+                for r_idx in room_ids:
+                     if solver.value(company_uses_room[c_idx][r_idx]):
+                          assigned_room_idx = r_idx
+                          assigned_room_name = rooms[r_idx]
+                          break
+                
+                if assigned_room_idx == -1:
+                    company_has_students = False
+                    for t_idx in time_slot_indices:
+                         for s_idx in range(num_students):
+                              if solver.value(assignment[s_idx][t_idx][c_idx]):
+                                   company_has_students = True; break
+                         if company_has_students: break
+                    if company_has_students:
+                        pass
+                    else:
+                        
+                        pass
+                    continue 
+
+                for t_idx in time_slot_indices:
+                    if solver.value(session_room[c_idx][t_idx][assigned_room_idx]):
+                        slot_letter, time_range = self.time_slots[t_idx]
+                        session = CompanySession(
+                            company=company,
+                            room=assigned_room_name,
+                            time_slot=slot_letter,
+                            time_range=time_range
+                        )
+                        
+                        student_count_in_session = 0
+                        for s_idx in range(num_students):
+                            if solver.value(assignment[s_idx][t_idx][c_idx]):
+                                student = students[s_idx]
+                                wish_num = self._get_student_wish_number_for_company(student, company.unique_id, number_to_company)
+                                session.add_student(student.student_id, student.name)
+                                if session.students:
+                                    session.students[-1]["wish_number"] = wish_num if wish_num else "-"
+                                student_count_in_session += 1
+                        
+                        if student_count_in_session > 0:
+                             self.schedule[(company.unique_id, t_idx)] = session
+                        else:
+                             pass
+
+            if not self.schedule:
+                 
+                 return False
+
+            
+            return True
+        else:
+            
+            return False
+
+    
+    def _get_student_wish_number_for_company(self, student: StudentPreference, company_id: str, number_to_company: Dict) -> Optional[int]:
+         
+         
+         
+         
+         company_name = ""
+         for c in self.companies:
+             if c.unique_id == company_id: 
+                 company_name = c.name 
+                 break
+         if not company_name: return None
+
+         for idx, wish in enumerate(student.wishes, 1):
+             wish_company_name = None
+             try:
+                 wish_num = int(float(str(wish).strip()))
+                 if wish_num in number_to_company:
+                     wish_company_name = number_to_company[wish_num] 
+                     
+                     for c_lookup in self.companies:
+                          if c_lookup.name == wish_company_name: 
+                              if c_lookup.unique_id == company_id: return idx
+                              
+             except (ValueError, TypeError):
+                  wish_company_name = str(wish).strip()
+             
+             
+             if wish_company_name and wish_company_name == company_name: 
+                 
+                 for c_lookup in self.companies:
+                     if c_lookup.name == wish_company_name and c_lookup.unique_id == company_id:
+                         return idx
+
+         return None 

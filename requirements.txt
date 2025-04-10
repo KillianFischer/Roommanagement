@@ -1,7 +1,10 @@
 pandas
 openpyxl
-reportlab
+XlsxWriter
 python-dotenv
+Pillow
+fpdf2
+ortools
 pytest
 pytest-cov
 reportlab
