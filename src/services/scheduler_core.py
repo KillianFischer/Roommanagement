@@ -7,9 +7,6 @@ from ortools.sat.python import cp_model
 from models.student import StudentPreference
 from models.company import Company, CompanySession
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
 class SchedulerCore:
     def __init__(self):
         self.student_preferences: Optional[List[StudentPreference]] = None
@@ -38,7 +35,6 @@ class SchedulerCore:
 
         df.columns = df.columns.str.strip()
         self.student_preferences = StudentPreference.from_dataframe(df, company_mapping)
-        
         return True
 
     def load_companies(self, df: pd.DataFrame) -> bool:
@@ -46,7 +42,6 @@ class SchedulerCore:
             return False
         df.columns = df.columns.str.strip()
         self.companies = Company.from_dataframe(df)
-        
         return True
 
     def load_rooms(self, df: pd.DataFrame) -> bool:
@@ -81,9 +76,6 @@ class SchedulerCore:
                 except (ValueError, TypeError):
                     
                     self.room_capacities[room_name] = 20  # Default capacity
-            else:
-                self.room_capacities[room_name] = 20  # Default capacity if not specified
-        
         return True
 
     def is_data_loaded(self) -> bool:
@@ -217,24 +209,17 @@ class SchedulerCore:
                     if finanzamt_rooms:
                         finanzamt.fixed_room = finanzamt_rooms[0]
                         
-        
         for company in companies:
             wish_count = wish_counts.get(company.name.strip(), 0)
             
-            
             if wish_count == 0:
-                
                 continue
                 
             expected_students = min(wish_count, company.capacity)
             
             suitable_rooms = [r for r in sorted_rooms if self.room_capacities.get(r, 0) >= expected_students]
             if not suitable_rooms:
-                
                 suitable_rooms = sorted_rooms
-            
-            
-            
             fixed_room = None
             
             if hasattr(company, 'fixed_room') and company.fixed_room:
@@ -245,10 +230,7 @@ class SchedulerCore:
                     pass
             
             if not fixed_room and "finanzamt" in company.name.lower():
-                
-                
                 finanzamt_rooms = [r for r in suitable_rooms if any(term in r.lower() for term in ["finanz", "steuer", "amt"])]
-                
                 
                 if finanzamt_rooms:
                     fixed_room = finanzamt_rooms[0]
@@ -258,16 +240,12 @@ class SchedulerCore:
                     non_raum_rooms = [r for r in suitable_rooms if r.lower() != "raum"]
                     if non_raum_rooms:
                         fixed_room = non_raum_rooms[0]
-                        
                         company.fixed_room = fixed_room
                     else:
-                        
                         if suitable_rooms:
                             fixed_room = suitable_rooms[0]
                             company.fixed_room = fixed_room
-            
             sessions_assigned = 0
-            
             for slot_idx in range(company.earliest_slot, len(self.time_slots)):
                 if sessions_assigned >= company.max_sessions:
                     
@@ -750,8 +728,6 @@ class SchedulerCore:
     def calculate_overall_fulfillment_score(self) -> float:
         if not self.schedule:
             return 0.0
-            
-        
         
         wish_weights = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
         max_score_per_student = 21  
@@ -819,16 +795,6 @@ class SchedulerCore:
         fulfillment_percentage = 0.0
         if max_possible_score > 0:
             fulfillment_percentage = (total_score / max_possible_score) * 100
-            
-            
-        
-        
-        
-        
-        
-        
-        
-        
         return fulfillment_percentage
 
     def get_schedule(self) -> Dict[Tuple[str, int], CompanySession]:
@@ -852,9 +818,6 @@ class SchedulerCore:
             self.schedule[(company.unique_id, -1)] = session
 
     def debug_room_assignments(self) -> bool:
-        
-        
-        
         valid = True
         room_schedule = {}
         student_schedule = {}
@@ -921,33 +884,17 @@ class SchedulerCore:
         for room, slots in room_schedule.items():
             room_capacity = self.room_capacities.get(room, "unknown")
             slot_info = ", ".join([f"{self.time_slots[slot][0]}: {company}" for slot, company in sorted(slots.items())])
-            
-            
         total_student_slots = sum(len(slots) for slots in student_schedule.values())
         total_company_slots = sum(len(slots) for slots in company_schedule.values())
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
         if valid:
             pass
         else:
             pass
-        
         return valid 
 
     def _get_company_id_from_wish(self, wish):
-        
         if not wish:
             return None
-            
         try:
             wish_num = int(float(str(wish).strip()))
             for company in self.companies:
@@ -968,12 +915,7 @@ class SchedulerCore:
         return None 
 
     def _generate_schedule_cp_sat(self, companies_to_schedule: List[Company], number_to_company: Dict) -> bool:
-        
-        
-        
         model = cp_model.CpModel()
-
-        
         students = self.student_preferences
         rooms = self.rooms
         all_companies = self.companies
@@ -1032,15 +974,9 @@ class SchedulerCore:
         fulfilled_wish = {}
         student_wish_company_idx = {}
 
-        
-        
-        
-        
         for s_idx in range(num_students):
             for t_idx in time_slot_indices:
                 model.add_exactly_one(assignment[s_idx][t_idx][c_idx] for c_idx in range(num_companies))
-        
-
         
         for r_idx in room_ids:
             for t_idx in time_slot_indices:
@@ -1051,8 +987,6 @@ class SchedulerCore:
             for t_idx in time_slot_indices:
                 for c_idx in range(num_companies):
                     model.add(assignment[s_idx][t_idx][c_idx] <= sum(session_room[c_idx][t_idx][r_idx] for r_idx in room_ids))
-        
-
         
         for c_idx in range(num_companies):
             
@@ -1066,8 +1000,6 @@ class SchedulerCore:
                  for r_idx in room_ids:
                       model.add_implication(session_room[c_idx][t_idx][r_idx], company_uses_room[c_idx][r_idx])
         
-
-        
         for c_idx in range(num_companies):
             for t_idx in time_slot_indices:
                 for r_idx in room_ids:
@@ -1079,14 +1011,10 @@ class SchedulerCore:
                     else:
                          pass
         
-
-        
         for c_idx in range(num_companies):
             company_cap = company_capacities_idx[c_idx]
             for t_idx in time_slot_indices:
                 model.add(sum(assignment[s_idx][t_idx][c_idx] for s_idx in range(num_students)) <= company_cap)
-        
-
         
         for c_idx in range(num_companies):
             max_sessions = company_max_sessions_idx[c_idx]
@@ -1095,15 +1023,11 @@ class SchedulerCore:
                 model.add(company_active_in_slot[c_idx][t_idx] <= sum(session_room[c_idx][t_idx][r_idx] for r_idx in room_ids))
             model.add(sum(company_active_in_slot[c_idx][t_idx] for t_idx in time_slot_indices) <= max_sessions)
         
-
-        
         for c_idx in range(num_companies):
             earliest_slot = company_earliest_slot_idx[c_idx]
             for t_idx in range(earliest_slot):
                  for r_idx in room_ids:
                      model.add(session_room[c_idx][t_idx][r_idx] == 0)
-        
-
         
         for s_idx, student in enumerate(students):
             student_wish_company_idx[s_idx] = {}
@@ -1113,7 +1037,6 @@ class SchedulerCore:
                     c_idx = company_map[company_id]
                     student_wish_company_idx[s_idx][wish_rank] = c_idx
 
-        
         for s_idx in range(num_students):
             fulfilled_wish[s_idx] = {}
             for wish_rank, c_idx in student_wish_company_idx[s_idx].items():
@@ -1122,7 +1045,6 @@ class SchedulerCore:
                 for t_idx in time_slot_indices:
                      model.add_implication(assignment[s_idx][t_idx][c_idx], fulfilled_wish[s_idx][wish_rank])
 
-        
         polizei_company = self._identify_polizei_company(companies_to_schedule)
         if polizei_company and "Aula" in rooms:
             polizei_c_id = polizei_company.unique_id
@@ -1130,7 +1052,6 @@ class SchedulerCore:
                  polizei_c_idx = company_map[polizei_c_id]
                  aula_r_idx = room_map["Aula"]
                  model.add(company_uses_room[polizei_c_idx][aula_r_idx] == 1)
-                 
             else:
                  pass
         elif polizei_company:
@@ -1140,7 +1061,6 @@ class SchedulerCore:
         first_wishes_prioritized = 0
         bonus_weight = num_students * 10 
 
-        
         for s_idx in range(num_students):
             if 1 in student_wish_company_idx[s_idx]:
                  
@@ -1148,44 +1068,23 @@ class SchedulerCore:
                       objective_terms.append(fulfilled_wish[s_idx][1] * bonus_weight)
                       first_wishes_prioritized += 1
                  else:
-                     
                      pass
-                     
         if first_wishes_prioritized > 0:
              pass
         else:
              pass
-
-        
-         
-        
         for s_idx in range(num_students):
             for wish_rank, c_idx in student_wish_company_idx[s_idx].items():
                 if wish_rank in fulfilled_wish[s_idx]:
                      objective_terms.append(fulfilled_wish[s_idx][wish_rank] * wish_weights.get(wish_rank, 0))
-        
         model.maximize(sum(objective_terms))
-        
-
-        
-        
         solver = cp_model.CpSolver()
         solver.parameters.random_seed = 0 
         solver.parameters.max_time_in_seconds = 300.0 
         solver.parameters.log_search_progress = True 
-        
         status = solver.solve(model)
-        
-
-        
         if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-            
-            
-             
-            
             self.schedule.clear() 
-            
-            
             for c_idx in range(num_companies):
                 company = company_obj_map[company_ids[c_idx]]
                 assigned_room_idx = -1
@@ -1195,7 +1094,6 @@ class SchedulerCore:
                           assigned_room_idx = r_idx
                           assigned_room_name = rooms[r_idx]
                           break
-                
                 if assigned_room_idx == -1:
                     company_has_students = False
                     for t_idx in time_slot_indices:
@@ -1206,7 +1104,6 @@ class SchedulerCore:
                     if company_has_students:
                         pass
                     else:
-                        
                         pass
                     continue 
 
@@ -1234,12 +1131,9 @@ class SchedulerCore:
                              self.schedule[(company.unique_id, t_idx)] = session
                         else:
                              pass
-
             if not self.schedule:
                  
                  return False
-
-            
             return True
         else:
             
@@ -1247,10 +1141,6 @@ class SchedulerCore:
 
     
     def _get_student_wish_number_for_company(self, student: StudentPreference, company_id: str, number_to_company: Dict) -> Optional[int]:
-         
-         
-         
-         
          company_name = ""
          for c in self.companies:
              if c.unique_id == company_id: 
@@ -1278,5 +1168,4 @@ class SchedulerCore:
                  for c_lookup in self.companies:
                      if c_lookup.name == wish_company_name and c_lookup.unique_id == company_id:
                          return idx
-
          return None 
