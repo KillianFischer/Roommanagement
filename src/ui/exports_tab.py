@@ -24,6 +24,7 @@ class ExportsTab:
         self.export_frame.columnconfigure(0, weight=1)
         self.export_frame.rowconfigure(0, weight=1)
 
+    # error display
     def show_error(self, section, message):
         if section == "student":
             if hasattr(self, 'student_error_label'):
@@ -32,6 +33,7 @@ class ExportsTab:
             if hasattr(self, 'attendance_error_label'):
                 self.attendance_error_label.config(text=message)
 
+    # error clearing
     def clear_error(self, section=None):
         if section == "student" or section is None:
             if hasattr(self, 'student_error_label'):
@@ -40,6 +42,7 @@ class ExportsTab:
             if hasattr(self, 'attendance_error_label'):
                 self.attendance_error_label.config(text="")
 
+    # student schedules tab setup
     def _setup_student_schedules_tab(self):
         self.student_schedules_frame = ttk.Frame(self.export_notebook)
         self.export_notebook.add(self.student_schedules_frame, text="Schülerzeitpläne")
@@ -91,11 +94,13 @@ class ExportsTab:
         
         self.student_preview_canvas.bind('<Configure>', self._on_student_canvas_configure)
         
+    # student canvas configure handler
     def _on_student_canvas_configure(self, event):
         width = event.width - 10
         if hasattr(self, 'student_preview_canvas_window') and self.student_preview_canvas.winfo_exists() and self.student_preview_canvas.find_all():
              self.student_preview_canvas.itemconfigure(self.student_preview_canvas_window, width=width)
         
+    # attendance lists tab setup
     def _setup_attendance_lists_tab(self):
         self.attendance_lists_frame = ttk.Frame(self.export_notebook)
         self.export_notebook.add(self.attendance_lists_frame, text="Anwesenheitslisten")
@@ -152,11 +157,13 @@ class ExportsTab:
         
         self.attendance_preview_canvas.bind('<Configure>', self._on_attendance_canvas_configure)
         
+    # attendance canvas configure handler
     def _on_attendance_canvas_configure(self, event):
         width = event.width - 10
         if hasattr(self, 'attendance_preview_canvas_window') and self.attendance_preview_canvas.winfo_exists() and self.attendance_preview_canvas.find_all():
              self.attendance_preview_canvas.itemconfigure(self.attendance_preview_canvas_window, width=width)
 
+    # student preview command
     def _preview_student_command(self):
         self.clear_error("student")
         if not self.scheduler.get_schedule():
@@ -164,6 +171,7 @@ class ExportsTab:
             return
         self.preview_student_schedules()
 
+    # student excel export command
     def _export_student_excel_command(self):
         self.clear_error("student")
         if not self.scheduler.get_schedule():
@@ -171,6 +179,7 @@ class ExportsTab:
             return
         self.export_student_schedules_excel()
 
+    # attendance preview command
     def _preview_attendance_command(self):
         self.clear_error("attendance")
         if not self.scheduler.get_schedule():
@@ -178,6 +187,7 @@ class ExportsTab:
             return
         self.preview_attendance_lists()
 
+    # attendance excel export command
     def _export_attendance_excel_command(self):
         self.clear_error("attendance")
         if not self.scheduler.get_schedule():
@@ -185,6 +195,7 @@ class ExportsTab:
             return
         self.export_attendance_lists_excel()
 
+    # student schedules preview
     def preview_student_schedules(self):
         for widget in self.student_preview_frame.winfo_children():
             widget.destroy()
@@ -296,6 +307,7 @@ class ExportsTab:
                 scrollregion=self.student_preview_canvas.bbox("all")
             )
             
+    # attendance lists preview
     def preview_attendance_lists(self):
         self.clear_error("attendance")
         if not self.scheduler.get_schedule():
@@ -423,6 +435,7 @@ class ExportsTab:
             except:
                 pass 
 
+    # student schedules pdf export
     def export_student_schedules_pdf(self):
         filepath = filedialog.asksaveasfilename(
             defaultextension=".pdf", 
@@ -432,6 +445,7 @@ class ExportsTab:
             if self.scheduler.export_student_schedules_pdf(filepath):
                 messagebox.showinfo("Export Erfolgreich", f"Schülerzeitpläne PDF exportiert nach {filepath}")
 
+    # student schedules excel export
     def export_student_schedules_excel(self):
         filepath = filedialog.asksaveasfilename(
             defaultextension=".xlsx", 
@@ -441,18 +455,21 @@ class ExportsTab:
             if self.scheduler.export_student_schedules_excel(filepath):
                 messagebox.showinfo("Export Erfolgreich", f"Schülerzeitpläne Excel exportiert nach {filepath}")
 
+    # attendance lists pdf export
     def export_attendance_lists_pdf(self):
         filepath = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")])
         if filepath:
             if self.scheduler.export_attendance_lists_pdf(filepath, preview_mode=False):
                 messagebox.showinfo("Export Erfolgreich", f"Anwesenheitslisten PDF exportiert nach {filepath}")
 
+    # attendance lists excel export
     def export_attendance_lists_excel(self):
         filepath = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")])
         if filepath:
             if self.scheduler.export_attendance_lists_excel(filepath, preview_mode=False):
                 messagebox.showinfo("Export Erfolgreich", f"Anwesenheitslisten Excel exportiert nach {filepath}")
 
+    # room schedule export
     def export_room_schedule(self):
         self.clear_error()
         if not self.scheduler.get_schedule():
@@ -465,6 +482,7 @@ class ExportsTab:
             else:
                  messagebox.showwarning("Nicht Implementiert", "Der Excel-Export für den Raumplan ist noch nicht implementiert.")
 
+    # all data export
     def export_all(self):
         self.clear_error()
         if not self.scheduler.get_schedule():
@@ -483,6 +501,7 @@ class ExportsTab:
         except Exception as e:
             messagebox.showerror("Error", f"Fehler beim Exportieren aller Dateien: {str(e)}") 
 
+    # room list export
     def export_room_list(self):
         self.clear_error()
         if not self.scheduler.core.rooms:

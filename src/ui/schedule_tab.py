@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import threading
 
 class ScheduleTab:
     def __init__(self, parent, scheduler, app):
@@ -16,7 +17,7 @@ class ScheduleTab:
         ttk.Button(
             self.schedule_controls,
             text="Zeitplan generieren",
-            command=self.generate_schedule,
+            command=self.confirm_and_generate_schedule,
         ).grid(row=0, column=0, padx=5, pady=(0, 5), sticky="w")
 
         ttk.Button(
@@ -51,24 +52,44 @@ class ScheduleTab:
         self.schedule_frame_inner.columnconfigure(0, weight=1)
         self.schedule_frame_inner.rowconfigure(0, weight=1)
         
+    # error message display
     def show_error(self, message):
         self.schedule_error_label.config(text=message)
 
+    # error message clearing
     def clear_error(self):
         self.schedule_error_label.config(text="")
         
+    # generation confirmation popup
+    def confirm_and_generate_schedule(self):
+        proceed = messagebox.askokcancel(
+            "Zeitplan Generierung",
+            "Die Zeitplanerstellung dauert bis zu 30 Minuten.\nFortfahren?"
+        )
+        if proceed:
+            self.show_error("Generiere Zeitplan... Bitte warten")
+            thread = threading.Thread(target=self.generate_schedule, daemon=True)
+            thread.start()
+
+    # background schedule generation
     def generate_schedule(self):
-        self.clear_error()
         if not self.scheduler.is_data_loaded():
-            self.show_error("Bitte laden Sie zuerst alle Daten (Schüler, Unternehmen, Räume) im Import-Tab.")
+            self.schedule_frame.after(0, self.show_error, "Bitte laden Sie zuerst alle Daten (Schüler, Unternehmen, Räume) im Import-Tab.")
             return
 
-        if self.scheduler.generate_schedule():
+        success = self.scheduler.generate_schedule()
+
+        self.schedule_frame.after(0, self._update_ui_after_generation, success)
+
+    # post-generation ui update
+    def _update_ui_after_generation(self, success):
+        if success:
             self.update_schedule_display()
             self.clear_error()
         else:
             self.show_error("Fehler bei der Erstellung des Zeitplans. Details siehe Popup.")
-            
+
+    # schedule display update
     def update_schedule_display(self):
         for item in self.schedule_tree.get_children():
             self.schedule_tree.delete(item)
@@ -102,14 +123,13 @@ class ScheduleTab:
         companies = self.scheduler.core.companies
         
         company_sessions = {}
-        if schedule: # Only group if schedule exists
+        if schedule: 
             for (company_id, slot_idx), session in schedule.items():
                 if company_id not in company_sessions:
                     company_sessions[company_id] = {}
                 company_sessions[company_id][slot_idx] = session
         
         for idx, company in enumerate(companies):
-            # Skip excluded companies (marked by a session with slot_idx -1)
             if schedule and any((company.unique_id, -1) == key for key in schedule):
                 continue
                 
@@ -117,17 +137,18 @@ class ScheduleTab:
             row = [display_name]
             for slot_idx, (slot_letter, time_range) in enumerate(time_slots):
                 if slot_idx < company.earliest_slot or slot_idx in company.blocked_slots:
-                    text = "---" # Blocked or too early
+                    text = "---"
                 else:
                     session = schedule.get((company.unique_id, slot_idx)) if schedule else None
                     if session:
                         text = f"Raum {session.room}"
                     else:
-                        text = "---" # No session scheduled
+                        text = "---"
                 row.append(text)
                 
             self.schedule_tree.insert("", tk.END, values=row, tags=("evenrow" if idx % 2 == 0 else "oddrow"))
             
+    # schedule pdf export
     def export_schedule_pdf(self):
         self.clear_error()
         if not self.scheduler.get_schedule():
@@ -226,8 +247,8 @@ class ScheduleTab:
         except Exception as e:
             self.show_error(f"Fehler beim PDF-Export des Zeitplans: {str(e)}")
 
+    # schedule excel export
     def export_schedule_excel(self):
-        """Exports the main schedule grid view to an Excel file."""
         self.clear_error()
         if not self.scheduler.get_schedule():
             self.show_error("Bitte erst den Zeitplan generieren!")

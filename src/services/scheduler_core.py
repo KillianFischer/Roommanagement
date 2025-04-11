@@ -1079,9 +1079,10 @@ class SchedulerCore:
                      objective_terms.append(fulfilled_wish[s_idx][wish_rank] * wish_weights.get(wish_rank, 0))
         model.maximize(sum(objective_terms))
         solver = cp_model.CpSolver()
-        solver.parameters.random_seed = 0 
-        solver.parameters.max_time_in_seconds = 300.0 
-        solver.parameters.log_search_progress = True 
+        solver.parameters.random_seed = 0
+        solver.parameters.max_time_in_seconds = 1800.0 # 30 minutes
+        solver.parameters.log_search_progress = True
+        solver.parameters.num_search_workers = 1 # runs on a single thread now, will take up to 30min lol
         status = solver.solve(model)
         if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
             self.schedule.clear() 

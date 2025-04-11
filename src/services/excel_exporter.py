@@ -11,7 +11,6 @@ from models.student import StudentPreference
 
 class ExcelExporter:
     def __init__(self):
-
         self.header_fill = PatternFill(start_color="2F5596", end_color="2F5596", fill_type="solid")
         self.header_font = Font(bold=True, color="FFFFFF")
         self.subheader_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
@@ -25,6 +24,7 @@ class ExcelExporter:
             bottom=Side(style='thin')
         )
 
+    # student schedules export
     def export_student_schedules(self, filepath: str, schedule: Dict[Tuple[str, int], any], 
                                 student_preferences: List[StudentPreference], time_slots: List[Tuple[str, str]]):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -100,14 +100,15 @@ class ExcelExporter:
             
             current_row += 1
         
-        ws.column_dimensions['A'].width = 10  # Slot
-        ws.column_dimensions['B'].width = 20  # Zeit
-        ws.column_dimensions['C'].width = 40  # Unternehmen
-        ws.column_dimensions['D'].width = 20  # Raum
+        ws.column_dimensions['A'].width = 10
+        ws.column_dimensions['B'].width = 20
+        ws.column_dimensions['C'].width = 40
+        ws.column_dimensions['D'].width = 20
         
         wb.save(filepath)
         return True
             
+    # student schedules preparation
     def _prepare_student_schedules(self, schedule, student_preferences):
         student_schedules = {}
         
@@ -116,7 +117,7 @@ class ExcelExporter:
             
         for (company_id, slot_idx), session in schedule.items():
             if slot_idx == -1:
-                continue  # Skip excluded companies
+                continue
                 
             for student in session.students:
                 student_name = student["name"]
@@ -127,6 +128,7 @@ class ExcelExporter:
                 
         return student_schedules
         
+    # company overview export
     def export_company_overview(self, filepath: str, schedule: Dict[Tuple[str, int], any],
                                time_slots: List[Tuple[str, str]]):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -142,7 +144,7 @@ class ExcelExporter:
         slot_to_companies = {}
         for (company_id, slot_idx), session in schedule.items():
             if slot_idx == -1:
-                continue  # Skip excluded companies
+                continue
                 
             if slot_idx not in slot_to_companies:
                 slot_to_companies[slot_idx] = []
@@ -208,13 +210,14 @@ class ExcelExporter:
                 ws.cell(row=current_row, column=1, value=f"• {company_name}: Kein Schülerinteresse")
                 current_row += 1
         
-        ws.column_dimensions['A'].width = 40  # Unternehmen
-        ws.column_dimensions['B'].width = 20  # Raum
-        ws.column_dimensions['C'].width = 15  # Anzahl Schüler
+        ws.column_dimensions['A'].width = 40
+        ws.column_dimensions['B'].width = 20
+        ws.column_dimensions['C'].width = 15
         
         wb.save(filepath)
         return True
 
+    # attendance lists export
     def export_attendance_lists(self, filepath: str, schedule: Dict[Tuple[str, int], any], 
                               time_slots: List[Tuple[str, str]], preview_mode=False):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -294,14 +297,15 @@ class ExcelExporter:
             
             current_row += 2
         
-        ws.column_dimensions['A'].width = 5   # Nr.
-        ws.column_dimensions['B'].width = 30  # Name
-        ws.column_dimensions['C'].width = 15  # Klasse
-        ws.column_dimensions['D'].width = 15  # Anwesend
+        ws.column_dimensions['A'].width = 5
+        ws.column_dimensions['B'].width = 30
+        ws.column_dimensions['C'].width = 15
+        ws.column_dimensions['D'].width = 15
         
         wb.save(filepath)
         return True
         
+    # room list export
     def export_room_list(self, filepath: str, rooms: List[str], room_capacities: Dict[str, int]):
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
@@ -333,7 +337,7 @@ class ExcelExporter:
                 cell.fill = row_fill
             cell.border = self.thin_border
             
-            capacity = room_capacities.get(room_name, 30)  # Default to 30 if not specified
+            capacity = room_capacities.get(room_name, 30)
             cell = ws.cell(row=current_row, column=2, value=capacity)
             if row_fill:
                 cell.fill = row_fill
@@ -342,35 +346,34 @@ class ExcelExporter:
             
             current_row += 1
         
-        ws.column_dimensions['A'].width = 30  # Raum
-        ws.column_dimensions['B'].width = 15  # Kapazität
+        ws.column_dimensions['A'].width = 30
+        ws.column_dimensions['B'].width = 15
         
         wb.save(filepath)
         return True
 
+    # main schedule grid export
     def export_schedule(self, filepath: str, schedule: dict, time_slots: list, companies: list) -> bool:
-        """Exports the main schedule grid view to an Excel file."""
         try:
             header = ["Unternehmen"] + [f"{slot} ({time})" for slot, time in time_slots]
             data = []
 
             for company in companies:
-                # Skip companies that have been excluded (assuming an entry with slot_idx -1 exists)
                 if any((company.unique_id, -1) == key for key in schedule.keys()):
                     continue
                     
-                display_name = str(company)  # Use the __str__ representation
+                display_name = str(company)
                 row = [display_name]
 
                 for slot_idx, _ in enumerate(time_slots):
                     if slot_idx < company.earliest_slot or slot_idx in company.blocked_slots:
-                        text = "---" # Indicate blocked or too early slot
+                        text = "---"
                     else:
                         session = schedule.get((company.unique_id, slot_idx))
                         if session:
-                            text = f"Raum {session.room}" # Show room
+                            text = f"Raum {session.room}"
                         else:
-                            text = "---" # Indicate no session scheduled
+                            text = "---"
                     row.append(text)
                 data.append(row)
 

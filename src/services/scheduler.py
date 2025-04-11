@@ -6,6 +6,7 @@ from services.scheduler_core import SchedulerCore
 from services.excel_exporter import ExcelExporter
 from services.attendance_exporter import AttendanceExporter
 from models.student import StudentPreference
+from models.company import Company
 
 
 class Scheduler:
@@ -15,9 +16,11 @@ class Scheduler:
         self.attendance_exporter = AttendanceExporter()
         self.time_slots = self.core.time_slots
 
+    # student preferences loading
     def load_student_preferences(self, df: pd.DataFrame) -> bool:
         return self.core.load_student_preferences(df)
 
+    # company data loading
     def load_companies(self, df: pd.DataFrame) -> bool:
         required_columns = [
             "Unternehmen",
@@ -25,9 +28,10 @@ class Scheduler:
             "Max. Veranstaltungen",
             "Frühester Zeitpunkt",
         ]
-
+        # Optional columns
         field_column = "Fachrichtung"
-        
+        blocked_slots_col = "Gesperrte Slots" # Define column name for blocked slots
+
         for col in required_columns:
             if col not in df.columns:
                 messagebox.showerror("Fehler bei Import", f"Erforderliche Spalte fehlt in Unternehmensliste: {col}")
@@ -37,18 +41,24 @@ class Scheduler:
             companies = []
             for _, row in df.iterrows():
                 name = str(row["Unternehmen"]).strip()
-                field = str(row[field_column]).strip() if field_column and pd.notna(row[field_column]) else ""
-                
+                field = str(row[field_column]).strip() if field_column in df.columns and pd.notna(row[field_column]) else ""
                 max_participants = int(row["Max. Teilnehmer"])
-
                 max_sessions = int(row["Max. Veranstaltungen"])
-                
-                earliest_slot = 0  # Default A slot
+
+                earliest_slot = 0
                 if pd.notna(row["Frühester Zeitpunkt"]):
                     slot_letter = str(row["Frühester Zeitpunkt"]).strip().upper()
                     if slot_letter in ["A", "B", "C", "D", "E"]:
                         earliest_slot = ord(slot_letter) - ord("A")
-                
+
+                # Process blocked slots
+                blocked_slots_list = []
+                if blocked_slots_col in df.columns and pd.notna(row[blocked_slots_col]):
+                    slots_str = str(row[blocked_slots_col]).strip()
+                    if slots_str: # Check if the string is not empty
+                        slot_letters = [s.strip().upper() for s in slots_str.split(',') if s.strip()] # Split and clean
+                        blocked_slots_list = [ord(letter) - ord('A') for letter in slot_letters if letter in ['A', 'B', 'C', 'D', 'E']] # Convert valid letters to indices
+
                 companies.append(
                     Company(
                         name=name,
@@ -56,23 +66,29 @@ class Scheduler:
                         capacity=max_participants,
                         max_sessions=max_sessions,
                         earliest_slot=earliest_slot,
+                        blocked_slots=blocked_slots_list # Pass the list
                     )
                 )
-            
+
             self.core.companies = companies
             return True
         except Exception as e:
+            # Add more specific error handling if needed
+            import traceback
+            traceback.print_exc() # Print stack trace for debugging
             messagebox.showerror("Fehler bei Import", f"Fehler beim Verarbeiten der Unternehmensliste: {str(e)}")
             return False
 
+    # room data loading
     def load_rooms(self, df: pd.DataFrame) -> bool:
         return self.core.load_rooms(df)
 
+    # data loaded check
     def is_data_loaded(self) -> bool:
         return self.core.is_data_loaded()
 
+    # schedule generation
     def generate_schedule(self) -> bool:
-        """Generate a schedule using the core scheduler"""
         if not self.is_data_loaded():
             messagebox.showerror("Fehler bei Zeitplanerstellung", "Bitte laden Sie zuerst alle Daten (Schüler, Unternehmen, Räume).")
             return False
@@ -89,18 +105,17 @@ class Scheduler:
             messagebox.showerror("Fehler bei Zeitplanerstellung", f"Unerwarteter Fehler bei der Generierung des Zeitplans: {str(e)}")
             return False
 
+    # schedule getter
     def get_schedule(self):
-        """Get the current schedule"""
         return self.core.schedule
 
+    # overall fulfillment score calculation
     def calculate_overall_fulfillment_score(self) -> float:
-        """Calculate the overall score for how well student wishes were fulfilled"""
         if not self.core.schedule:
             return 0
-        
-        # Use the direct method from SchedulerCore
         return self.core.calculate_overall_fulfillment_score()
 
+    # student fulfillment score dataframe
     def get_student_fulfillment_scores(self) -> pd.DataFrame:
         if not self.core.schedule:
             return pd.DataFrame()
@@ -127,11 +142,10 @@ class Scheduler:
             for slot_letter, time_range, company_name, room, wish_number in student_schedule:
                 if wish_number and wish_number != "-":
                     wish_counts[wish_number] += 1
-                    # Calculate score based on wish rank (6 for 1st wish, 5 for 2nd, etc.)
                     total_score += (7 - wish_number)
             
-            max_possible_score = 21  # Maximum possible score (6+5+4+3+2+1)
-            fulfillment_pct = (total_score / max_possible_score) * 100
+            max_possible_score = 21
+            fulfillment_pct = (total_score / max_possible_score) * 100 if max_possible_score > 0 else 0
             
             record = {
                 "Student ID": student.student_id,
@@ -145,7 +159,7 @@ class Scheduler:
                 "4th Wishes": wish_counts.get(4, 0),
                 "5th Wishes": wish_counts.get(5, 0),
                 "6th Wishes": wish_counts.get(6, 0),
-                "No Match": len(student_schedule) - sum(wish_counts.values()),
+                "No Match": len(student_schedule) - sum(w[1] for w in wish_counts.items() if w[0] is not None),
             }
             
             for slot_letter, time_range, company_name, room, wish_number in student_schedule:
@@ -157,19 +171,19 @@ class Scheduler:
         df = pd.DataFrame(student_data)
         
         if len(df) > 0:
-            total_students = len(df)
-            students_with_wishes = len(df[df["Total Score"] > 0])
-            students_with_top_three = len(df[df["1st Wishes"] + df["2nd Wishes"] + df["3rd Wishes"] > 0])
+            # Optionally calculate overall stats here if needed
+            pass
             
-            return df
+        return df
         
+    # individual student schedule getter
     def get_student_schedule(self, student_id):
         if not self.core.schedule:
             return []
             
         schedule = []
         for (company_id, slot_idx), session in self.core.schedule.items():
-            if slot_idx == -1:  # Skip excluded companies
+            if slot_idx == -1:
                 continue
                 
             for student_info in session.students:
@@ -189,42 +203,45 @@ class Scheduler:
                     
         return sorted(schedule, key=lambda x: x[0])
         
+    # fulfillment statistics getter
     def get_fulfillment_statistics(self):
-        """Get statistics on wish fulfillment"""
         if not self.core.schedule:
             return {}
             
         score = self.core.calculate_overall_fulfillment_score()
         
+        students_with_wishes = len([s for s in self.core.student_preferences if s.wishes and any(wish for wish in s.wishes)])
+        students_with_top_three = len([s for s in self.core.student_preferences if s.wishes and any(wish for wish in s.wishes[:3])])
+        
+        students_with_at_least_one_wish_pct = (students_with_wishes / len(self.core.student_preferences) * 100) if self.core.student_preferences else 0
+        students_with_top_three_wishes_pct = (students_with_top_three / len(self.core.student_preferences) * 100) if self.core.student_preferences else 0
+
         return {
             "fulfillment_percentage": score,
-            "students_with_wishes": len([s for s in self.core.student_preferences if s.wishes and any(wish for wish in s.wishes)]),
-            "students_with_at_least_one_wish": len([s for s in self.core.student_preferences if s.wishes and any(wish for wish in s.wishes)]),
-            "students_with_top_three_wishes": len([s for s in self.core.student_preferences if s.wishes and any(wish for wish in s.wishes[:3])]),
-            "average_weighted_fulfillment": score,
-            "students_with_at_least_one_wish_pct": 100.0,  # Since we only count students with wishes
-            "students_with_top_three_wishes_pct": 100.0,  # Since we only count students with wishes
+            "students_with_wishes": students_with_wishes, 
+            "students_with_at_least_one_wish": students_with_wishes,
+            "students_with_top_three_wishes": students_with_top_three,
+            "students_with_at_least_one_wish_pct": round(students_with_at_least_one_wish_pct, 1),
+            "students_with_top_three_wishes_pct": round(students_with_top_three_wishes_pct, 1),
         }
 
+    # student schedules pdf export
     def export_student_schedules_pdf(self, filepath: str) -> bool:
-        """Export student schedules as PDF"""
         if not self.core.schedule:
             messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
             return False
         try:
-            self.pdf_exporter.export_student_schedules(
-                filepath=filepath,
-                schedule=self.core.schedule,
-                student_preferences=self.core.student_preferences, 
-                time_slots=self.time_slots
-            )
-            return True
+            messagebox.showwarning("Nicht Implementiert", "PDF Export für Schülerpläne nicht vollständig implementiert.")
+            return False # Placeholder
+        except AttributeError:
+             messagebox.showerror("Exportfehler", "PDF Exporter nicht initialisiert.")
+             return False
         except Exception as e:
             messagebox.showerror("Exportfehler", f"Fehler beim PDF-Export der Schülerzeitpläne: {str(e)}")
             return False
             
+    # student schedules excel export
     def export_student_schedules_excel(self, filepath: str) -> bool:
-        """Export student schedules as Excel"""
         if not self.core.schedule:
             messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
             return False   
@@ -240,25 +257,26 @@ class Scheduler:
             messagebox.showerror("Exportfehler", f"Fehler beim Excel-Export der Schülerzeitpläne: {str(e)}")
             return False
 
+    # company overview pdf export
     def export_company_overview_pdf(self, filepath: str) -> bool:
-        """Export company overview as PDF"""
         if not self.core.schedule:
             messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
             return False
             
         try:
-            self.pdf_exporter.export_company_overview(
-                filepath=filepath,
-                schedule=self.core.schedule,
-                time_slots=self.time_slots
-            )
-            return True
+            # Assuming pdf_exporter exists and has the method
+            # self.pdf_exporter.export_company_overview(...)
+            messagebox.showwarning("Nicht Implementiert", "PDF Export für Unternehmensübersicht nicht vollständig implementiert.")
+            return False # Placeholder
+        except AttributeError:
+             messagebox.showerror("Exportfehler", "PDF Exporter nicht initialisiert.")
+             return False
         except Exception as e:
             messagebox.showerror("Exportfehler", f"Fehler beim PDF-Export der Unternehmensübersicht: {str(e)}")
             return False
             
+    # company overview excel export
     def export_company_overview_excel(self, filepath: str) -> bool:
-        """Export company overview as Excel"""
         if not self.core.schedule:
             messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
             return False
@@ -273,32 +291,32 @@ class Scheduler:
             messagebox.showerror("Exportfehler", f"Fehler beim Excel-Export der Unternehmensübersicht: {str(e)}")
             return False
 
+    # attendance lists pdf export
     def export_attendance_lists_pdf(self, filepath: str, preview_mode=False) -> bool:
-        """Export attendance lists to PDF"""
         if not self.core.schedule:
             messagebox.showerror("Exportfehler", "Bitte erst den Zeitplan generieren!")
             return False
             
         return self.attendance_exporter.export_attendance_lists(filepath, self.core.schedule, self.core.time_slots, preview_mode=preview_mode)
             
+    # attendance lists excel export
     def export_attendance_lists_excel(self, filepath: str, preview_mode=False) -> bool:
-        """Export attendance lists to Excel"""
         if not self.core.schedule:
             messagebox.showerror("Exportfehler", "Bitte erst den Zeitplan generieren!")
             return False
             
         return self.excel_exporter.export_attendance_lists(filepath, self.core.schedule, self.core.time_slots, preview_mode=preview_mode)
         
+    # room list excel export
     def export_room_list_excel(self, filepath: str) -> bool:
-        """Export room list with capacities to Excel"""
         if not self.core.rooms or not self.core.room_capacities:
             messagebox.showerror("Exportfehler", "Bitte erst die Räume importieren!")
             return False
             
         return self.excel_exporter.export_room_list(filepath, self.core.rooms, self.core.room_capacities)
 
+    # schedule excel export (main grid)
     def export_schedule_excel(self, filepath: str) -> bool:
-        """Exports the main schedule grid view to an Excel file."""
         if not self.core.schedule:
             messagebox.showerror("Exportfehler", "Bitte zuerst den Zeitplan generieren.")
             return False
@@ -315,15 +333,15 @@ class Scheduler:
             messagebox.showerror("Exportfehler", f"Fehler beim Exportieren des Zeitplans nach Excel: {str(e)}")
             return False
 
+    # student schedules dictionary getter
     def get_student_schedules(self):
-        """Get schedules organized by student"""
         if not self.core.schedule:
             return {}
             
         student_schedules = {}
         
         for (company_id, slot_idx), session in self.core.schedule.items():
-            if slot_idx == -1:  # Skip excluded companies
+            if slot_idx == -1:
                 continue
                 
             slot_letter, time_range = self.time_slots[slot_idx]
@@ -344,6 +362,7 @@ class Scheduler:
             
         return student_schedules
         
+    # company overview dictionary getter
     def get_company_overview(self):
         if not self.is_data_loaded() or not self.get_schedule():
             return {}
@@ -351,7 +370,7 @@ class Scheduler:
         slot_to_companies = {}
         
         for (company_id, slot_idx), session in self.get_schedule().items():
-            if slot_idx == -1:  # Skip excluded companies
+            if slot_idx == -1:
                 continue
                 
             slot_letter, _ = self.time_slots[slot_idx]
@@ -372,13 +391,8 @@ class Scheduler:
             
         return slot_to_companies
         
+    # excluded companies list getter
     def get_excluded_companies(self):
-        """
-        Get list of excluded companies
-        
-        Returns:
-            list: List of excluded company display names
-        """
         if not self.is_data_loaded() or not self.get_schedule():
             return []
             
@@ -390,42 +404,7 @@ class Scheduler:
                 
         return sorted(excluded_companies)
         
+    # student preferences property
     @property
     def student_preferences(self) -> Optional[List[StudentPreference]]:
         return self.core.student_preferences
-
-
-class Company:
-    def __init__(
-        self, name, field="", capacity=0, max_sessions=0, earliest_slot=0, blocked_slots=None, fixed_room=None
-    ):
-        self.name = name
-        self.field = field
-        self.capacity = capacity
-        self.max_sessions = max_sessions
-        self.earliest_slot = earliest_slot
-        self.blocked_slots = blocked_slots or []
-        self.fixed_room = fixed_room
-        # Unique id that combines name and field
-        self.unique_id = f"{name}_{field}" if field else name
-        self.always_show_field = False
-    
-    def __str__(self):
-        if self.field:
-            return f"{self.name} ({self.field})"
-        return self.name
-
-
-class Session:
-    def __init__(self, company, room):
-        self.company = company
-        self.room = room
-        self.students = []
-        
-    def __str__(self):
-        return f"Session({self.company}, {self.room}, {len(self.students)} students)"
-        
-    def get_company_display_name(self):
-        if self.company.field:
-            return f"{self.company.name} ({self.company.field})"
-        return self.company.name

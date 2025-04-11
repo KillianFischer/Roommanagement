@@ -41,7 +41,7 @@ class StudentPreference:
     @staticmethod
     def _extract_student_info(row, idx):
         klasse = str(row["Klasse"]).strip()
-        name = str(row["Name"]).strip()
+        name = str(row["Nachname"]).strip()
         vorname = str(row["Vorname"]).strip()
         student_id = f"{klasse}_{idx + 1}"
         full_name = f"{name}, {vorname}"
