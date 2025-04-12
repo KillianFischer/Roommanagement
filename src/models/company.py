@@ -9,16 +9,14 @@ class Company:
     max_sessions: int
     earliest_slot: int
     blocked_slots: List[int]
-    field: str = ""  # Add field property with default empty string
-    always_show_field: bool = False  # Flag to always show field in display name
+    field: str = ""
+    always_show_field: bool = False
 
     @property
     def unique_id(self) -> str:
-        """Unique identifier combining name and field"""
         return f"{self.name}_{self.field}" if self.field else self.name
         
     def __str__(self) -> str:
-        """String representation including the field if available"""
         if self.field:
             return f"{self.name} ({self.field})"
         return self.name
@@ -38,9 +36,7 @@ class Company:
             if "Max. Veranstaltungen" in df.columns:
                 max_sessions = int(row["Max. Veranstaltungen"])
             else:
-                # Default to 5 (one for each time slot) if no column is found
-                # This case should ideally not be reached if validation is done beforehand
-                max_sessions = 5
+                max_sessions = 5 # default 5 if no found
                 
             if pd.isna(row["Frühester Zeitpunkt"]):
                 earliest = 0
@@ -80,11 +76,9 @@ class CompanySession:
         return True
 
     def is_full(self) -> bool:
-        # Never exceed the room's physical capacity
         return len(self.students) >= self.company.capacity
         
     def get_company_display_name(self) -> str:
-        """Return a display name for the company that includes the field if available"""
         if self.company.field:
             return f"{self.company.name} ({self.company.field})"
         return self.company.name

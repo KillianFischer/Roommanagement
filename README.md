@@ -1,1 +1,1 @@
-aktueller erfüllungsscore: 75.80%
+aktueller erfüllungsscore: 81.80%
